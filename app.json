@@ -33,12 +33,20 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "允许选择图片作为任务附件。"
+          "photosPermission": "允许选择图片作为任务附件。",
+          "microphonePermission": false
         }
       ]
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "3aa2858c-2a11-4040-95e5-124d2a363777"
+      }
+    },
+    "owner": "kaibairen_yi"
   }
 }
