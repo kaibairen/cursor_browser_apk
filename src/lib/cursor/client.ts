@@ -1,5 +1,6 @@
 import { Platform } from 'react-native';
-import { CursorApiError, CursorAuthError, friendlyNetworkError, isRetryableStatus } from './errors';
+import { CursorApiError, CursorAuthError, friendlyNetworkError, isRetryableError } from './errors';
+import { fetchAttemptsWhenUnstable, noteNetworkFail, noteNetworkOk } from './reconnect';
 import type {
   Agent,
   AgentConversation,
@@ -19,6 +20,7 @@ import type {
   ConversationMessage,
   ConversationMode,
 } from './types';
+import { readModelId } from './modelId';
 
 function apiOrigin(): string {
   return Platform.OS === 'web' ? '/cursor-api' : 'https://api.cursor.com';
@@ -88,8 +90,10 @@ async function cursorFetchOnce<T>(
       body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
     });
   } catch (error) {
+    noteNetworkFail();
     throw friendlyNetworkError(error);
   }
+  noteNetworkOk();
   logRequest(method, path, res.status);
 
   if (!res.ok) {
@@ -106,18 +110,18 @@ export async function cursorFetch<T>(
   path: string,
   options: FetchOptions = {},
 ): Promise<T> {
-  const maxAttempts = 3;
+  const maxAttempts = fetchAttemptsWhenUnstable();
   let lastError: unknown;
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     try {
       return await cursorFetchOnce<T>(apiKey, path, options);
     } catch (error) {
       lastError = error;
-      const retryable = error instanceof CursorApiError && isRetryableStatus(error.status);
-      if (!retryable || attempt === maxAttempts - 1) {
+      if (!isRetryableError(error) || attempt === maxAttempts - 1) {
         throw error;
       }
-      const waitMs = error.status === 429 ? 2000 * (attempt + 1) : 400 * 2 ** attempt;
+      const status = error instanceof CursorApiError ? error.status : 0;
+      const waitMs = status === 429 ? 2000 * (attempt + 1) : 400 * 2 ** attempt;
       await delay(waitMs);
     }
   }
@@ -139,8 +143,13 @@ export function listAgents(
   return cursorFetch<Paginated<AgentListItem>>(apiKey, `/v1/agents?${search.toString()}`);
 }
 
-export function getAgent(apiKey: string, id: string): Promise<Agent> {
-  return cursorFetch<Agent>(apiKey, `/v1/agents/${id}`);
+function withModel<T extends { model?: { id: string } }>(value: T): T {
+  const id = readModelId(value);
+  return id ? { ...value, model: { id } } : value;
+}
+
+export async function getAgent(apiKey: string, id: string): Promise<Agent> {
+  return withModel(await cursorFetch<Agent>(apiKey, `/v1/agents/${id}`));
 }
 
 function messageText(row: Record<string, unknown>): string {
@@ -254,8 +263,8 @@ export function listRuns(
   );
 }
 
-export function getRun(apiKey: string, agentId: string, runId: string): Promise<Run> {
-  return cursorFetch<Run>(apiKey, `/v1/agents/${agentId}/runs/${runId}`);
+export async function getRun(apiKey: string, agentId: string, runId: string): Promise<Run> {
+  return withModel(await cursorFetch<Run>(apiKey, `/v1/agents/${agentId}/runs/${runId}`));
 }
 
 export function cancelRun(apiKey: string, agentId: string, runId: string): Promise<{ id: string }> {

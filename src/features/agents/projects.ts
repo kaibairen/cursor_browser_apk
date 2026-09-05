@@ -39,11 +39,15 @@ export function resolvedDefaultRepo(prefs: AppPrefs | null | undefined): string 
   return prefs.defaultRepoUrl?.trim() || prefs.recentRepos[0] || prefs.cachedRepos?.[0]?.url || '';
 }
 
-export function agentProjectEntry(agent: Pick<Agent, 'id' | 'env' | 'repos' | 'latestRunId'>): AgentProject {
+export function agentProjectEntry(
+  agent: Pick<Agent, 'id' | 'env' | 'repos' | 'latestRunId'>,
+  extra?: { modelId?: string },
+): AgentProject {
   return {
     repoUrl: agent.repos?.[0]?.url,
     envName: agent.env?.name,
     latestRunId: agent.latestRunId,
+    modelId: extra?.modelId,
   };
 }
 
@@ -107,6 +111,7 @@ async function hydrateListItem(
     additions: previous?.additions,
     deletions: previous?.deletions,
     stamp,
+    modelId: previous?.modelId,
   };
 
   try {
@@ -122,6 +127,7 @@ async function hydrateListItem(
       }
       next.prUrl = extracted.prUrl || next.prUrl;
       if (extracted.repoUrl) next.repoUrl = next.repoUrl || extracted.repoUrl;
+      if (run.model?.id) next.modelId = run.model.id;
     }
     if (!next.repoUrl || !next.envName) {
       try {
@@ -129,6 +135,7 @@ async function hydrateListItem(
         next.repoUrl = next.repoUrl || agent.repos?.[0]?.url;
         next.envName = next.envName || agent.env?.name;
         next.latestRunId = next.latestRunId || agent.latestRunId;
+        if (agent.model?.id) next.modelId = agent.model.id;
         if (!next.prUrl && agent.latestRunId && agent.latestRunId !== item.latestRunId) {
           const run = await getRun(apiKey, item.id, agent.latestRunId);
           const extracted = extractRunDiff(run);

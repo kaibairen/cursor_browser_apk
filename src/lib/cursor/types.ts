@@ -54,6 +54,7 @@ export interface AgentListItem {
 export interface Agent extends AgentListItem {
   workOnCurrentBranch?: boolean;
   autoCreatePR?: boolean;
+  model?: { id: string };
 }
 
 export interface GitBranch {
@@ -86,6 +87,7 @@ export interface Run {
   git?: { branches: GitBranch[] };
   additions?: number;
   deletions?: number;
+  model?: { id: string };
 }
 
 export interface Paginated<T> {

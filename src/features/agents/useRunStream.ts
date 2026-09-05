@@ -1,14 +1,21 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { openRunStream, type SseEvent } from '../../lib/cursor/sse';
-import { CursorApiError } from '../../lib/cursor/errors';
-import { isTerminalRun, type RunStatus } from '../../lib/cursor/types';
+import { openRunStream } from '../../lib/cursor/sse';
+import { applySseEvent, applySseEvents, ensureThinkingLine, type TranscriptLine } from '../../lib/cursor/sseApply';
+import { prepareBurst, replayDelayMs } from '../../lib/cursor/ssePace';
+import type { SseEvent } from '../../lib/cursor/sseParse';
+import { CursorApiError, isNetworkError } from '../../lib/cursor/errors';
+import { isNetworkDown, networkBackoffMs, noteNetworkFail } from '../../lib/cursor/reconnect';
+import { isTerminalRun, type Run, type RunStatus } from '../../lib/cursor/types';
 import { useAuth, useOptionalApiKey } from '../auth/AuthContext';
 
-export type TranscriptLine =
-  | { kind: 'assistant'; text: string }
-  | { kind: 'thinking'; text: string }
-  | { kind: 'tool'; callId: string; name: string; status: string; detail?: string };
+export type { TranscriptLine };
+
+const LIVE_RETRY_MS = [80, 160, 280, 450, 700];
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 export function useRunStream(agentId: string, runId: string | undefined, runStatus?: RunStatus) {
   const apiKey = useOptionalApiKey();
@@ -17,30 +24,84 @@ export function useRunStream(agentId: string, runId: string | undefined, runStat
   const [lines, setLines] = useState<TranscriptLine[]>([]);
   const [streamError, setStreamError] = useState<string | null>(null);
   const [usePolling, setUsePolling] = useState(false);
+  const [ended, setEnded] = useState(false);
+  const [revealing, setRevealing] = useState(false);
+  const [retryNonce, setRetryNonce] = useState(0);
+  const linesRef = useRef<TranscriptLine[]>([]);
   const lastEventId = useRef<string | undefined>(undefined);
+  const simplified = useRef({ assistant: false, thinking: false });
+  const pendingRetry = useRef(false);
+  const retries = useRef(0);
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const queueRef = useRef<SseEvent[]>([]);
+  const pumping = useRef(false);
+  const burstRef = useRef(false);
+  const stopped = useRef(false);
+  const statusRef = useRef(runStatus);
 
-  const live = Boolean(runId && runStatus && !isTerminalRun(runStatus) && !usePolling);
+  statusRef.current = runStatus;
+  const runDone = Boolean(runStatus && isTerminalRun(runStatus));
+  const live = Boolean(runId && apiKey && !usePolling && !ended && !runDone);
+  const canConnect = Boolean(
+    runId && apiKey && !usePolling && !ended && (runStatus === 'CREATING' || runStatus === 'RUNNING'),
+  );
 
   useEffect(() => {
+    linesRef.current = [];
     setLines([]);
     setStreamError(null);
     setUsePolling(false);
+    setEnded(false);
+    setRevealing(false);
+    setRetryNonce(0);
     lastEventId.current = undefined;
+    simplified.current = { assistant: false, thinking: false };
+    pendingRetry.current = false;
+    retries.current = 0;
+    queueRef.current = [];
+    pumping.current = false;
+    burstRef.current = false;
+    stopped.current = false;
+    if (retryTimer.current) {
+      clearTimeout(retryTimer.current);
+      retryTimer.current = null;
+    }
   }, [runId]);
 
   useEffect(() => {
-    if (!live || !runId || !apiKey) return;
+    if (!runStatus || !isTerminalRun(runStatus)) return;
+    stopped.current = true;
+    queueRef.current = [];
+    burstRef.current = false;
+    setRevealing(false);
+    setEnded(true);
+    void queryClient.invalidateQueries({ queryKey: ['conversation', agentId] });
+  }, [agentId, queryClient, runStatus]);
+
+  useEffect(() => {
+    if (!canConnect || !runId || !apiKey) return;
+    stopped.current = false;
 
     const stop = openRunStream(
       apiKey,
       agentId,
       runId,
       {
-        onEvent: (event) => applySseEvent(event, setLines, lastEventId, () => {
-          void queryClient.invalidateQueries({ queryKey: ['run', agentId, runId] });
-          void queryClient.invalidateQueries({ queryKey: ['agent', agentId] });
-        }),
+        onOpen: () => {
+          const next = ensureThinkingLine(linesRef.current);
+          linesRef.current = next;
+          setLines(next);
+        },
+        onEvent: (event) => enqueue([event], false),
+        onEvents: (events) => enqueue(events, events.length > 1),
         onError: (error) => {
+          const unavailable = error instanceof CursorApiError && error.code === 'stream_unavailable';
+          const status = statusRef.current;
+          if (isNetworkError(error)) noteNetworkFail();
+          if (unavailable || (isNetworkError(error) && (!status || status === 'CREATING' || status === 'RUNNING'))) {
+            scheduleRetry();
+            return;
+          }
           handleApiError(error);
           if (error instanceof CursorApiError && error.code === 'stream_expired') {
             setUsePolling(true);
@@ -54,101 +115,131 @@ export function useRunStream(agentId: string, runId: string | undefined, runStat
       lastEventId.current,
     );
 
-    return stop;
-  }, [apiKey, agentId, runId, live, handleApiError, queryClient]);
+    return () => {
+      stop();
+    };
 
-  return { lines, streamError, usePolling };
-}
-
-function applySseEvent(
-  event: SseEvent,
-  setLines: React.Dispatch<React.SetStateAction<TranscriptLine[]>>,
-  lastEventId: { current: string | undefined },
-  onTerminal: () => void,
-): void {
-  if (event.id) lastEventId.current = event.id;
-  if (event.event === 'heartbeat' || event.event === 'status') return;
-
-  if (event.event === 'assistant' || event.event === 'thinking') {
-    try {
-      const payload = JSON.parse(event.data) as { text?: string };
-      const text = payload.text ?? '';
-      if (!text) return;
-      const kind = event.event === 'thinking' ? 'thinking' : 'assistant';
-      setLines((prev) => {
-        const last = prev[prev.length - 1];
-        if (last && last.kind === kind) {
-          return [...prev.slice(0, -1), { kind, text: last.text + text }];
-        }
-        return [...prev, { kind, text }];
-      });
-    } catch {
-      // ignore malformed deltas
-    }
-    return;
-  }
-
-  if (event.event === 'tool_call') {
-    try {
-      const payload = JSON.parse(event.data) as {
-        callId: string;
-        name: string;
-        status: string;
-        args?: unknown;
+    function context() {
+      return {
+        lastEventId: lastEventId.current,
+        simplified: simplified.current,
+        pendingRetry: pendingRetry.current,
       };
-      setLines((prev) => {
-        const existing = prev.findIndex(
-          (line) => line.kind === 'tool' && line.callId === payload.callId,
-        );
-        const next: TranscriptLine = {
-          kind: 'tool',
-          callId: payload.callId,
-          name: payload.name,
-          status: payload.status,
-          detail: payload.args ? summarizeArgs(payload.args) : undefined,
-        };
-        if (existing >= 0) {
-          const copy = [...prev];
-          copy[existing] = next;
-          return copy;
+    }
+
+    function commit(result: ReturnType<typeof applySseEvent>) {
+      lastEventId.current = result.lastEventId;
+      pendingRetry.current = Boolean(result.retry);
+      linesRef.current = result.lines;
+      setLines(result.lines);
+      return result;
+    }
+
+    function finishTerminal(result: ReturnType<typeof applySseEvent>) {
+      retries.current = 0;
+      queueRef.current = [];
+      burstRef.current = false;
+      setEnded(true);
+      queryClient.setQueryData(['run', agentId, runId], (current: Run | undefined) =>
+        current
+          ? {
+              ...current,
+              status: result.runStatus ?? 'FINISHED',
+              result: result.resultText ?? current.result,
+              durationMs: result.durationMs ?? current.durationMs,
+            }
+          : current,
+      );
+      void queryClient.invalidateQueries({ queryKey: ['run', agentId, runId] });
+      void queryClient.invalidateQueries({ queryKey: ['agent', agentId] });
+      void queryClient.invalidateQueries({ queryKey: ['conversation', agentId] });
+    }
+
+    function enqueue(events: SseEvent[], burst: boolean) {
+      if (stopped.current || !events.length) return;
+      const next = burst || events.length > 1 ? prepareBurst(events) : events;
+      if (next.length > 1) {
+        const result = commit(applySseEvents(next, linesRef.current, context()));
+        if (result.retry) {
+          lastEventId.current = undefined;
+          pendingRetry.current = false;
+          scheduleRetry();
+          return;
         }
-        return [...prev, next];
-      });
-    } catch {
-      // ignore
-    }
-    return;
-  }
-
-  if (event.event === 'result') {
-    try {
-      const payload = JSON.parse(event.data) as { text?: string };
-      if (payload.text) {
-        setLines((prev) => {
-          const last = prev[prev.length - 1];
-          if (last && last.kind === 'assistant' && last.text === payload.text) {
-            return prev;
-          }
-          return [...prev, { kind: 'assistant', text: payload.text ?? '' }];
-        });
+        if (result.terminal) finishTerminal(result);
+        return;
       }
-    } catch {
-      // ignore
+      if (burst) burstRef.current = true;
+      queueRef.current.push(...next);
+      void pump();
     }
-    onTerminal();
-    return;
-  }
 
-  if (event.event === 'done' || event.event === 'error') {
-    onTerminal();
-  }
-}
+    async function pump() {
+      if (pumping.current) return;
+      pumping.current = true;
+      setRevealing(true);
+      let previous: SseEvent | undefined;
+      while (queueRef.current.length && !stopped.current) {
+        const event = queueRef.current.shift();
+        if (!event) break;
+        if (burstRef.current) {
+          const wait = replayDelayMs(event, previous);
+          if (wait > 0) await sleep(wait);
+        }
+        previous = event;
+        const result = commit(applySseEvent(event, linesRef.current, context()));
+        if (result.retry) {
+          lastEventId.current = undefined;
+          pendingRetry.current = false;
+          queueRef.current = [];
+          burstRef.current = false;
+          scheduleRetry();
+          break;
+        }
+        if (result.terminal) {
+          finishTerminal(result);
+          break;
+        }
+      }
+      if (!queueRef.current.length) burstRef.current = false;
+      pumping.current = false;
+      if (!queueRef.current.length) setRevealing(false);
+    }
 
-function summarizeArgs(args: unknown): string {
-  try {
-    const text = JSON.stringify(args);
-    return text.length > 140 ? `${text.slice(0, 137)}...` : text;
-  } catch {
-    return '';
-  }
+    function scheduleRetry() {
+      if (retryTimer.current || stopped.current) return;
+      const status = statusRef.current;
+      if (status && isTerminalRun(status)) {
+        setUsePolling(true);
+        setStreamError(null);
+        return;
+      }
+      const wait = isNetworkDown()
+        ? Math.max(1_000, networkBackoffMs())
+        : (LIVE_RETRY_MS[Math.min(retries.current, LIVE_RETRY_MS.length - 1)] ?? 700);
+      retries.current += 1;
+      retryTimer.current = setTimeout(() => {
+        retryTimer.current = null;
+        setRetryNonce((value) => value + 1);
+      }, wait);
+    }
+  }, [apiKey, agentId, runId, canConnect, retryNonce, handleApiError, queryClient]);
+
+  useEffect(() => () => {
+    if (retryTimer.current) clearTimeout(retryTimer.current);
+  }, []);
+
+  return {
+    lines,
+    streamError,
+    usePolling,
+    live: live || revealing,
+    stop: () => {
+      stopped.current = true;
+      queueRef.current = [];
+      burstRef.current = false;
+      setRevealing(false);
+      setEnded(true);
+    },
+  };
 }

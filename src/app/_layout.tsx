@@ -1,18 +1,20 @@
 import 'react-native-gesture-handler';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { focusManager, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
-import { ActivityIndicator, Platform, View } from 'react-native';
+import { ActivityIndicator, AppState, Platform, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider, useAuth } from '../features/auth/AuthContext';
+import { isNetworkError } from '../lib/cursor/errors';
+import { isNetworkDown } from '../lib/cursor/reconnect';
 import { colors } from '../theme';
 
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      retry: false,
+      retry: (count, error) => count < 1 && isNetworkError(error) && !isNetworkDown(),
       refetchOnWindowFocus: false,
     },
   },
@@ -58,6 +60,14 @@ export default function RootLayout() {
     style.textContent = 'textarea,input{outline:none!important;box-shadow:none!important;}';
     document.head.appendChild(style);
     return () => style.remove();
+  }, []);
+
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    const sub = AppState.addEventListener('change', (status) => {
+      focusManager.setFocused(status === 'active');
+    });
+    return () => sub.remove();
   }, []);
 
   return (

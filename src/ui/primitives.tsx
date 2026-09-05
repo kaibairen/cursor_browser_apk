@@ -143,7 +143,7 @@ const styles = StyleSheet.create({
   avatarText: { color: '#fff', fontSize: 12, fontWeight: '700' },
   segmented: {
     flexDirection: 'row',
-    alignSelf: 'flex-start',
+    alignSelf: 'center',
     backgroundColor: colors.chip,
     borderRadius: 999,
     padding: 3,

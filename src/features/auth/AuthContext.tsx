@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { getMe } from '../../lib/cursor/client';
-import { CursorAuthError } from '../../lib/cursor/errors';
+import { CursorAuthError, isNetworkError } from '../../lib/cursor/errors';
 import type { Me } from '../../lib/cursor/types';
 import { clearApiKey, readApiKey, writeApiKey } from './secureKey';
 
@@ -72,9 +72,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setStatus('signedIn');
       } catch (err) {
         if (cancelled) return;
-        await clearApiKey();
-        setError(err instanceof Error ? err.message : '无法验证 API Key');
-        setStatus('signedOut');
+        if (err instanceof CursorAuthError) {
+          await clearApiKey();
+          setError(err.message);
+          setStatus('signedOut');
+          return;
+        }
+        setApiKey(stored);
+        setStatus('signedIn');
+        setError(err instanceof Error ? err.message : isNetworkError(err) ? '无法连接' : '无法验证 API Key');
       }
     })();
     return () => {

@@ -1,6 +1,6 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeBack } from '../../lib/nav';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -34,19 +34,30 @@ import {
   isImageArtifactPath,
   isTextArtifactPath,
 } from '../../lib/cursor/client';
-import { isTerminalRun } from '../../lib/cursor/types';
+import { isTerminalRun, type ConversationMessage } from '../../lib/cursor/types';
 import { formatBytes } from '../../lib/format';
 import { colors, spacing } from '../../theme';
-import { isUserMessage, mergePreservingLocalUsers } from '../../features/agents/conversationView';
+import {
+  countUserTexts,
+  isUserMessage,
+  lastAssistantAfter,
+  lastUserIndex,
+  mergeConversation,
+} from '../../features/agents/conversationView';
 import { ArtifactViewer, type ArtifactView } from '../../ui/artifactViewer';
 import { ChatLoading } from '../../ui/chatLoading';
 import { ChatText } from '../../ui/chatText';
+import { ThinkingBlock } from '../../ui/thinkingBlock';
 import { UserBubble } from '../../ui/userBubble';
 import { Composer } from '../../ui/composer';
 import { githubHttpsUrl, openExternal } from '../../ui/openUrl';
 import { Segmented } from '../../ui/primitives';
 import { ActionSheet } from '../../ui/sheet';
 import { useVoiceInput } from '../../features/speech/useVoiceInput';
+import { useNetworkDown } from '../../features/agents/useNetworkDown';
+import { modelDisplayName, resolveStoredModelId } from '../../features/agents/models';
+import { loadPrefs, rememberAgentModel } from '../../storage/prefs';
+import { useQueryClient } from '@tanstack/react-query';
 
 export default function AgentDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -60,9 +71,11 @@ export default function AgentDetailScreen() {
   const latestRunId = agent?.latestRunId;
   const runQuery = useRun(agentId, latestRunId, true);
   const run = runQuery.data;
-  const live = Boolean(run && !isTerminalRun(run.status));
   const stream = useRunStream(agentId, latestRunId, run?.status);
+  const runDone = Boolean(run && isTerminalRun(run.status));
+  const live = Boolean((run && !isTerminalRun(run.status)) || (stream.live && !runDone));
   const conversation = useConversation(agentId, live);
+  const proxyDown = useNetworkDown();
   const followUp = useCreateFollowUp(agentId);
   const cancel = useCancelRun(agentId);
   const archive = useArchiveAgent(agentId);
@@ -71,12 +84,16 @@ export default function AgentDetailScreen() {
   const artifacts = useArtifacts(agentId);
   const download = useDownloadArtifact(agentId);
   const models = useModels();
+  const queryClient = useQueryClient();
 
   const [tab, setTab] = useState<'chat' | 'diff'>('chat');
   const [prompt, setPrompt] = useState('');
   const [pendingUsers, setPendingUsers] = useState<{ id: string; text: string }[]>([]);
+  const [keptThinking, setKeptThinking] = useState<{ text: string; durationMs?: number } | null>(null);
+  const thinkingStarted = useRef<number | null>(null);
   const [modelId, setModelId] = useState('');
   const [modelPicker, setModelPicker] = useState(false);
+  const modelReady = useRef(false);
   const [images, setImages] = useState<PickedImage[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -85,16 +102,93 @@ export default function AgentDetailScreen() {
   const [artifactView, setArtifactView] = useState<ArtifactView | null>(null);
   const [binaryUrl, setBinaryUrl] = useState<string | null>(null);
   const voice = useVoiceInput(prompt, setPrompt);
-
-  const busy = agent?.status === 'ACTIVE' || live || followUp.isPending;
+  const scrollRef = useRef<ScrollView>(null);
+  const historyHold = useRef<ConversationMessage[]>([]);
 
   useEffect(() => {
+    if (conversation.isFetching) return;
     const messages = conversation.data?.messages ?? [];
     if (!messages.length) return;
-    setPendingUsers((current) =>
-      current.filter((item) => !messages.some((message) => isUserMessage(message) && message.text === item.text)),
-    );
-  }, [conversation.data?.messages]);
+    setPendingUsers((current) => {
+      const confirmed = countUserTexts(messages, { confirmedOnly: true });
+      const seen = new Map<string, number>();
+      return current.filter((item) => {
+        const next = (seen.get(item.text) ?? 0) + 1;
+        seen.set(item.text, next);
+        return next > (confirmed.get(item.text) ?? 0);
+      });
+    });
+  }, [conversation.data?.messages, conversation.isFetching]);
+
+  useEffect(() => {
+    modelReady.current = false;
+    setModelId('');
+    historyHold.current = [];
+  }, [agentId]);
+
+  useEffect(() => {
+    const apiModel = agent?.model?.id || run?.model?.id;
+    if (apiModel && apiModel !== modelId) {
+      setModelId(apiModel);
+      modelReady.current = true;
+      if (agentId) void rememberAgentModel(agentId, apiModel);
+      return;
+    }
+    if (modelReady.current && modelId) return;
+    let cancelled = false;
+    void loadPrefs().then((prefs) => {
+      if (cancelled) return;
+      const next = resolveStoredModelId(
+        apiModel || prefs.agentProjects?.[agentId]?.modelId,
+        prefs.defaultModelId,
+        models.data?.items,
+      );
+      if (!next) return;
+      setModelId(next);
+      modelReady.current = true;
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [agentId, agent?.model?.id, run?.model?.id, modelId, models.data?.items]);
+
+  useEffect(() => {
+    if (!(live || followUp.isPending || stream.lines.length)) return;
+    scrollRef.current?.scrollToEnd({ animated: false });
+  }, [live, followUp.isPending, stream.lines, conversation.data?.messages?.length, pendingUsers.length]);
+
+  useEffect(() => {
+    const stored = queryClient.getQueryData<{ text: string; durationMs?: number }>(['thinking', agentId]);
+    setKeptThinking(stored ?? null);
+    thinkingStarted.current = stored ? thinkingStarted.current ?? Date.now() : null;
+  }, [agentId, queryClient]);
+
+  useEffect(() => {
+    if (!run || isTerminalRun(run.status)) return;
+    thinkingStarted.current = thinkingStarted.current ?? Date.now();
+    setKeptThinking((current) => current ?? { text: '' });
+  }, [run, run?.id, run?.status]);
+
+  useEffect(() => {
+    const thinking = [...stream.lines].reverse().find((line) => line.kind === 'thinking');
+    if (!thinking || thinking.kind !== 'thinking') return;
+    const durationMs =
+      thinking.durationMs ??
+      (thinking.done && thinkingStarted.current ? Date.now() - thinkingStarted.current : undefined);
+    setKeptThinking({ text: thinking.text, durationMs });
+  }, [stream.lines]);
+
+  useEffect(() => {
+    if (live || followUp.isPending || !keptThinking || keptThinking.durationMs != null) return;
+    if (!thinkingStarted.current) return;
+    const durationMs = Date.now() - thinkingStarted.current;
+    setKeptThinking((current) => (current ? { ...current, durationMs } : current));
+  }, [followUp.isPending, keptThinking, live]);
+
+  useEffect(() => {
+    if (!keptThinking || !agentId) return;
+    queryClient.setQueryData(['thinking', agentId], keptThinking);
+  }, [agentId, keptThinking, queryClient]);
 
   const usageText = useMemo(() => {
     if (!usage.data) return '还没拉到用量。';
@@ -109,8 +203,11 @@ export default function AgentDetailScreen() {
     const pendingId = `pending-${Date.now()}`;
     const keptImages = images;
     setPendingUsers((current) => [...current, { id: pendingId, text }]);
+    thinkingStarted.current = Date.now();
+    setKeptThinking({ text: '' });
     setPrompt('');
     setImages([]);
+    requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: false }));
     try {
       await followUp.mutateAsync({
         prompt: { text, images: keptImages.length ? await toPromptImages(keptImages) : undefined },
@@ -118,10 +215,12 @@ export default function AgentDetailScreen() {
       });
     } catch (err) {
       setPendingUsers((current) => current.filter((item) => item.id !== pendingId));
+      setKeptThinking(null);
+      thinkingStarted.current = null;
       setPrompt(text);
       setImages(keptImages);
       if (isBusyError(err)) {
-        setError('这一轮还在写。写完后再发，或点右上角停止。');
+        setError('先点停止，再发下一条。');
         return;
       }
       setError(err instanceof Error ? err.message : '发送失败');
@@ -164,28 +263,65 @@ export default function AgentDetailScreen() {
         <Pressable onPress={goBack}>
           <Text style={styles.back}>‹ 返回</Text>
         </Pressable>
-        <Text style={styles.error}>{agentQuery.error instanceof Error ? agentQuery.error.message : '加载失败'}</Text>
+        <Text style={styles.error}>
+          {agentQuery.error instanceof Error ? agentQuery.error.message : '加载失败'}
+        </Text>
       </View>
     );
   }
 
   const serverMessages = conversation.data?.messages ?? [];
-  const history = mergePreservingLocalUsers(
+  const incoming = mergeConversation(
     serverMessages,
     pendingUsers.map((item) => ({ id: item.id, type: 'user_message', text: item.text })),
   );
+  const history = mergeConversation(incoming, historyHold.current);
+  if (
+    history.length > historyHold.current.length ||
+    history.filter((item) => !isUserMessage(item)).length >=
+      historyHold.current.filter((item) => !isUserMessage(item)).length
+  ) {
+    historyHold.current = history;
+  }
   const hasLocalSend = pendingUsers.length > 0;
   const hasUser = history.some(isUserMessage);
-  const lastHistory = history[history.length - 1];
   const conversationReady = conversation.isSuccess || conversation.isError;
   const showChatSpinner = !hasLocalSend && history.length === 0 && conversation.isLoading;
-  const showLiveAssistant =
-    (hasUser || conversationReady) &&
-    (live || (stream.lines.length > 0 && Boolean(lastHistory && isUserMessage(lastHistory))));
-  const waitingForAssistant =
-    hasLocalSend && Boolean(lastHistory && isUserMessage(lastHistory)) && stream.lines.length === 0;
+  const streamAssistant = stream.lines.find((line) => line.kind === 'assistant' && line.text);
+  const streamThinking = stream.lines.find((line) => line.kind === 'thinking');
+  const streamTools = stream.lines.filter((line) => line.kind === 'tool');
+  const thinkingBusy =
+    streamThinking?.kind === 'thinking' && Boolean(streamThinking.text) && !streamThinking.done;
+  const showLiveAssistant = Boolean(streamAssistant) || (stream.live && hasUser);
+  const waitingForFirstToken =
+    !runDone && hasUser && (stream.live || followUp.isPending) && !streamAssistant && !thinkingBusy;
+  const thinkingDone =
+    runDone ||
+    Boolean(keptThinking && !live && !followUp.isPending) ||
+    (streamThinking?.kind === 'thinking' && streamThinking.done);
+  const showThinking =
+    Boolean(keptThinking) ||
+    waitingForFirstToken ||
+    streamThinking?.kind === 'thinking' ||
+    (!runDone && stream.live && hasUser) ||
+    followUp.isPending;
+  const latestUserIndex = lastUserIndex(history);
+  const latestAssistantIndex = lastAssistantAfter(history, latestUserIndex);
   const chatEmpty =
-    !showChatSpinner && conversationReady && history.length === 0 && stream.lines.length === 0 && !run?.result;
+    !showChatSpinner &&
+    conversationReady &&
+    !conversation.isError &&
+    history.length === 0 &&
+    stream.lines.length === 0 &&
+    !run?.result;
+  const conversationError =
+    conversation.isError && conversation.error instanceof Error ? conversation.error.message : null;
+  const agentRefreshError =
+    agentQuery.isError && agent && agentQuery.error instanceof Error ? agentQuery.error.message : null;
+  const machineHint =
+    chatEmpty && agent?.env?.type === 'machine'
+      ? '这条任务跑在本机 worker 上。公开 Cloud API 读不到 Remote Control 对话。'
+      : null;
   const showResultFallback =
     conversationReady &&
     !showLiveAssistant &&
@@ -235,47 +371,107 @@ export default function AgentDetailScreen() {
           />
         </View>
 
-        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        <ScrollView
+          ref={scrollRef}
+          contentContainerStyle={styles.content}
+          keyboardShouldPersistTaps="handled"
+        >
           {tab === 'chat' ? (
             <View style={styles.chat}>
               {showChatSpinner ? <ChatLoading label="加载对话…" /> : null}
-              {!showChatSpinner && live && !waitingForAssistant ? <Text style={styles.live}>正在写…</Text> : null}
-              {stream.streamError ? <Text style={styles.meta}>{stream.streamError}</Text> : null}
+              {proxyDown ? (
+                <Text style={styles.meta}>网页代理断了，正在重连。连上后会一次拉齐已完成的回复。</Text>
+              ) : null}
+              {runDone && conversation.isFetching && !streamAssistant && !history.some((item) => !isUserMessage(item)) ? (
+                <Text style={styles.meta}>正在拉取已完成的回复…</Text>
+              ) : null}
+              {agentRefreshError ? <Text style={styles.error}>{agentRefreshError}</Text> : null}
+              {conversationError ? <Text style={styles.error}>{conversationError}</Text> : null}
+              {stream.streamError ? <Text style={styles.error}>{stream.streamError}</Text> : null}
+              {machineHint ? <Text style={styles.meta}>{machineHint}</Text> : null}
               {chatEmpty ? (
                 <Text style={styles.meta}>{live ? '等第一段回复。' : '还没有文字结果。'}</Text>
               ) : null}
               {!showChatSpinner
                 ? history.map((item, index) => {
-                    const skipTrailingAssistant =
-                      showLiveAssistant && !isUserMessage(item) && index === history.length - 1;
-                    if (skipTrailingAssistant) return null;
+                    const hideHistoryAssistant =
+                      Boolean(streamAssistant) && !isUserMessage(item) && index === latestAssistantIndex;
+                    if (hideHistoryAssistant) return null;
                     if (isUserMessage(item)) {
-                      return <UserBubble key={item.id} text={item.text} />;
-                    }
-                    return <ChatText key={item.id} text={item.text} />;
-                  })
-                : null}
-              {!showChatSpinner && waitingForAssistant ? <ChatLoading compact label="正在写…" /> : null}
-              {!showChatSpinner && showLiveAssistant
-                ? stream.lines.map((line, index) => {
-                    if (line.kind === 'tool') {
                       return (
-                        <Text key={`${line.callId}-${index}`} style={styles.tool}>
-                          {toolLabel(line.name)}
-                          {line.status === 'completed' ? ' · 完成' : '…'}
-                        </Text>
+                        <View key={`u:${index}:${item.text}`} style={styles.turn}>
+                          <UserBubble text={item.text} />
+                          {index === latestUserIndex && showThinking ? (
+                            <ThinkingBlock
+                              text={
+                                streamThinking?.kind === 'thinking' && streamThinking.text
+                                  ? streamThinking.text
+                                  : (keptThinking?.text ?? '')
+                              }
+                              done={thinkingDone && !thinkingBusy}
+                              durationMs={
+                                streamThinking?.kind === 'thinking'
+                                  ? streamThinking.durationMs
+                                  : keptThinking?.durationMs
+                              }
+                              defaultOpen={!thinkingDone || thinkingBusy}
+                            />
+                          ) : null}
+                          {index === latestUserIndex
+                            ? streamTools.map((line, toolIndex) =>
+                                line.kind === 'tool' ? (
+                                  <Text key={`${line.callId}-${toolIndex}`} style={styles.tool}>
+                                    {toolLabel(line.name)}
+                                    {line.status === 'completed' ? ' · 完成' : '…'}
+                                  </Text>
+                                ) : null,
+                              )
+                            : null}
+                          {index === latestUserIndex &&
+                          !thinkingBusy &&
+                          streamAssistant &&
+                          streamAssistant.kind === 'assistant' ? (
+                            stream.live ? (
+                              <Text style={styles.liveText}>
+                                {streamAssistant.text}
+                                <Text style={styles.caret}>▍</Text>
+                              </Text>
+                            ) : (
+                              <ChatText text={streamAssistant.text} />
+                            )
+                          ) : null}
+                        </View>
                       );
                     }
-                    if (line.kind === 'thinking') {
-                      return (
-                        <Text key={`t-${index}`} style={styles.thinking}>
-                          {line.text}
-                        </Text>
-                      );
-                    }
-                    return <ChatText key={`a-${index}`} text={line.text} />;
+                    return <ChatText key={`a:${index}:${item.id}`} text={item.text} />;
                   })
                 : null}
+              {!showChatSpinner && latestUserIndex < 0 && showThinking ? (
+                <ThinkingBlock
+                  text={
+                    streamThinking?.kind === 'thinking' && streamThinking.text
+                      ? streamThinking.text
+                      : (keptThinking?.text ?? '')
+                  }
+                  done={thinkingDone && !thinkingBusy}
+                  durationMs={
+                    streamThinking?.kind === 'thinking'
+                      ? streamThinking.durationMs
+                      : keptThinking?.durationMs
+                  }
+                  defaultOpen={!thinkingDone || thinkingBusy}
+                />
+              ) : null}
+              {!showChatSpinner && latestUserIndex < 0 && !thinkingBusy && streamAssistant && streamAssistant.kind === 'assistant' ? (
+                stream.live ? (
+                  <Text style={styles.liveText}>
+                    {streamAssistant.text}
+                    <Text style={styles.caret}>▍</Text>
+                  </Text>
+                ) : (
+                  <ChatText text={streamAssistant.text} />
+                )
+              ) : null}
               {!showChatSpinner && showResultFallback && run?.result ? <ChatText text={run.result} /> : null}
             </View>
           ) : (
@@ -319,16 +515,20 @@ export default function AgentDetailScreen() {
               placeholder="Add a follow up"
               onSubmit={() => void onFollowUp()}
               submitting={followUp.isPending}
-              modelLabel={
-                modelId
-                  ? models.data?.items.find((item) => item.id === modelId)?.displayName || modelId
-                  : '沿用此任务模型'
+              onStop={
+                latestRunId && (live || cancel.isPending)
+                  ? () => {
+                      void cancel.mutateAsync(latestRunId).catch((err: unknown) => {
+                        setError(err instanceof Error ? err.message : '无法停止');
+                      });
+                      stream.stop();
+                    }
+                  : undefined
               }
+              stopping={cancel.isPending}
+              modelLabel={modelDisplayName(modelId, models.data?.items) || '选择模型'}
               onModelPress={() => setModelPicker(true)}
-              hint={
-                voice.error ??
-                (busy ? '这一轮还在写。可以先打字，写完再发；现在发可能会被拒绝。' : undefined)
-              }
+              hint={voice.error ?? undefined}
               listening={voice.listening}
               onMicStart={voice.onMicStart}
               onMicEnd={voice.onMicEnd}
@@ -347,17 +547,18 @@ export default function AgentDetailScreen() {
       <ActionSheet
         visible={modelPicker}
         title="选择模型"
-        message="这一轮追问可以换模型。不选就继续用这条任务当前的模型。"
-        items={[
-          { id: '', label: '沿用此任务模型', hint: '不改模型' },
-          ...(models.data?.items ?? []).map((item) => ({
-            id: item.id,
-            label: item.displayName || item.id,
-            hint: item.description,
-          })),
-        ]}
+        message="这一轮追问用下面列出的模型。芯片上就是当前这条任务在用的模型。"
+        items={(models.data?.items ?? []).map((item) => ({
+          id: item.id,
+          label: item.displayName || item.id,
+          hint: item.description,
+        }))}
+        selectedId={modelId}
         onClose={() => setModelPicker(false)}
-        onSelect={setModelId}
+        onSelect={(id) => {
+          setModelId(id);
+          void rememberAgentModel(agentId, id);
+        }}
       />
       <ActionSheet
         visible={menuOpen}
@@ -435,11 +636,12 @@ const styles = StyleSheet.create({
   title: { textAlign: 'center', color: colors.text, fontSize: 16, fontWeight: '600' },
   project: { textAlign: 'center', color: colors.muted, fontSize: 12 },
   more: { color: colors.text, fontSize: 16, width: 28, textAlign: 'right' },
-  tabs: { paddingHorizontal: spacing.md, paddingBottom: 8 },
+  tabs: { paddingHorizontal: spacing.md, paddingBottom: 8, alignItems: 'center' },
   content: { paddingHorizontal: spacing.lg, paddingBottom: 24 },
   chat: { gap: 14, paddingTop: 8 },
-  live: { color: colors.live, fontSize: 13, fontWeight: '600' },
-  thinking: { color: colors.muted, fontSize: 14, lineHeight: 20 },
+  turn: { gap: 14 },
+  liveText: { color: colors.text, fontSize: 16, lineHeight: 24 },
+  caret: { color: colors.muted, fontSize: 16, lineHeight: 24 },
   tool: { color: colors.muted, fontSize: 13 },
   meta: { color: colors.muted, fontSize: 14, lineHeight: 20 },
   link: { color: colors.link, fontSize: 15 },

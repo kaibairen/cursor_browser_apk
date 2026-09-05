@@ -14,6 +14,7 @@ export function ActionSheet({
   title,
   message,
   items,
+  selectedId,
   onSelect,
   onClose,
 }: {
@@ -21,6 +22,7 @@ export function ActionSheet({
   title?: string;
   message?: string;
   items: SheetItem[];
+  selectedId?: string;
   onSelect: (id: string) => void;
   onClose: () => void;
 }) {
@@ -34,20 +36,26 @@ export function ActionSheet({
           {title ? <Text style={styles.title}>{title}</Text> : null}
           {message ? <Text style={styles.message}>{message}</Text> : null}
           <ScrollView style={styles.list} keyboardShouldPersistTaps="handled">
-            {items.map((item) => (
-              <Pressable
-                key={item.id}
-                accessibilityRole="button"
-                onPress={() => {
-                  onClose();
-                  onSelect(item.id);
-                }}
-                style={styles.row}
-              >
-                <Text style={[styles.label, item.destructive && styles.danger]}>{item.label}</Text>
-                {item.hint ? <Text style={styles.hint}>{item.hint}</Text> : null}
-              </Pressable>
-            ))}
+            {items.map((item) => {
+              const selected = selectedId !== undefined && item.id === selectedId;
+              return (
+                <Pressable
+                  key={item.id}
+                  accessibilityRole="button"
+                  onPress={() => {
+                    onClose();
+                    onSelect(item.id);
+                  }}
+                  style={styles.row}
+                >
+                  <Text style={[styles.label, item.destructive && styles.danger, selected && styles.selected]}>
+                    {selected ? '✓ ' : ''}
+                    {item.label}
+                  </Text>
+                  {item.hint ? <Text style={styles.hint}>{item.hint}</Text> : null}
+                </Pressable>
+              );
+            })}
           </ScrollView>
           <Pressable accessibilityRole="button" onPress={onClose} style={styles.cancel}>
             <Text style={styles.cancelText}>取消</Text>
@@ -85,6 +93,7 @@ const styles = StyleSheet.create({
   label: { color: colors.text, fontSize: 16, fontWeight: '600' },
   hint: { color: colors.muted, fontSize: 13, lineHeight: 18 },
   danger: { color: colors.danger },
+  selected: { color: colors.text },
   cancel: {
     marginTop: 8,
     minHeight: 44,

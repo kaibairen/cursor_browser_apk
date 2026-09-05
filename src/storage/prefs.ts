@@ -11,6 +11,7 @@ export type AgentProject = {
   additions?: number;
   deletions?: number;
   stamp?: string;
+  modelId?: string;
 };
 
 export type AppPrefs = {
@@ -63,17 +64,19 @@ export async function rememberAgentProjects(entries: Record<string, AgentProject
   const merged = { ...current };
   for (const [id, next] of Object.entries(entries)) {
     const prev = current[id];
+    const modelId = next.modelId ?? prev?.modelId;
     if (
       prev?.repoUrl === next.repoUrl &&
       prev?.envName === next.envName &&
       prev?.stamp === next.stamp &&
       prev?.prUrl === next.prUrl &&
       prev?.additions === next.additions &&
-      prev?.deletions === next.deletions
+      prev?.deletions === next.deletions &&
+      prev?.modelId === modelId
     ) {
       continue;
     }
-    merged[id] = next;
+    merged[id] = { ...prev, ...next, modelId };
     changed = true;
   }
   if (!changed) return prefs;
@@ -83,6 +86,23 @@ export async function rememberAgentProjects(entries: Record<string, AgentProject
       ? merged
       : Object.fromEntries(ids.slice(ids.length - 300).map((id) => [id, merged[id]]));
   const updated = { ...prefs, agentProjects: trimmed };
+  await savePrefs(updated);
+  return updated;
+}
+
+export async function rememberAgentModel(agentId: string, modelId: string): Promise<AppPrefs> {
+  const prefs = await loadPrefs();
+  const current = prefs.agentProjects ?? {};
+  const prev = current[agentId] ?? {};
+  if (prev.modelId === modelId && prefs.defaultModelId === modelId) return prefs;
+  const updated = {
+    ...prefs,
+    defaultModelId: modelId,
+    agentProjects: {
+      ...current,
+      [agentId]: { ...prev, modelId },
+    },
+  };
   await savePrefs(updated);
   return updated;
 }

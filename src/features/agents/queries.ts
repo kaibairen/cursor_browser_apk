@@ -25,7 +25,8 @@ import {
   listRuns,
   unarchiveAgent,
 } from '../../lib/cursor/client';
-import { CursorApiError } from '../../lib/cursor/errors';
+import { CursorApiError, isNetworkError } from '../../lib/cursor/errors';
+import { isNetworkDown, networkBackoffMs } from '../../lib/cursor/reconnect';
 import {
   isTerminalRun,
   type Agent,
@@ -35,10 +36,11 @@ import {
   type CreateAgentRequest,
   type Paginated,
   type PromptInput,
+  type Run,
 } from '../../lib/cursor/types';
 import { useAuth, useOptionalApiKey } from '../auth/AuthContext';
-import { loadPrefs, rememberAgentProjects, rememberRepo, savePrefs } from '../../storage/prefs';
-import { mergePreservingLocalUsers, seedUserMessage } from './conversationView';
+import { loadPrefs, rememberAgentModel, rememberAgentProjects, rememberRepo, savePrefs } from '../../storage/prefs';
+import { mergeConversation, seedUserMessage } from './conversationView';
 import { agentProjectEntry } from './projects';
 
 function requireApiKey(apiKey: string | null): string {
@@ -66,7 +68,7 @@ async function loadConversation(
   const local = queryClient.getQueryData<AgentConversation>(['conversation', agentId]);
   return {
     id: server.id,
-    messages: mergePreservingLocalUsers(server.messages, local?.messages ?? []),
+    messages: mergeConversation(server.messages, local?.messages ?? []),
   };
 }
 
@@ -111,32 +113,42 @@ export function useAgent(id: string) {
       }
     },
     placeholderData: () => findListedAgent(queryClient, id) as Agent | undefined,
-    refetchInterval: 12_000,
+    refetchInterval: () => (isNetworkDown() ? Math.max(4_000, networkBackoffMs()) : 12_000),
     refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
   });
 }
 
 export function useRun(agentId: string, runId: string | undefined, live: boolean) {
   const apiKey = useOptionalApiKey();
   const { handleApiError } = useAuth();
+  const queryClient = useQueryClient();
   return useQuery({
     queryKey: ['run', agentId, runId],
     enabled: Boolean(apiKey && runId),
     queryFn: async () => {
       try {
-        return await getRun(requireApiKey(apiKey), agentId, runId!);
+        const run = await getRun(requireApiKey(apiKey), agentId, runId!);
+        const previous = queryClient.getQueryData<Run>(['run', agentId, runId]);
+        if (isTerminalRun(run.status) && (!previous || !isTerminalRun(previous.status))) {
+          void queryClient.invalidateQueries({ queryKey: ['conversation', agentId] });
+        }
+        return run;
       } catch (error) {
         handleApiError(error);
         throw error;
       }
     },
     refetchInterval: (query) => {
+      if (isNetworkDown()) return Math.max(4_000, networkBackoffMs());
       if (!live) return false;
       const status = query.state.data?.status;
       if (status && isTerminalRun(status)) return false;
+      if (status === 'CREATING') return 700;
       return 4_000;
     },
     refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
   });
 }
 
@@ -152,12 +164,20 @@ export function useConversation(agentId: string, live: boolean) {
         return await loadConversation(requireApiKey(apiKey), agentId, queryClient);
       } catch (error) {
         handleApiError(error);
+        const local = queryClient.getQueryData<AgentConversation>(['conversation', agentId]);
+        if (local?.messages.length && isNetworkError(error)) {
+          return local;
+        }
         throw error;
       }
     },
     placeholderData: (previous) => previous,
-    refetchInterval: live ? 8_000 : false,
+    refetchInterval: () => {
+      if (isNetworkDown()) return Math.max(4_000, networkBackoffMs());
+      return live ? 8_000 : false;
+    },
     refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
   });
 }
 
@@ -301,9 +321,14 @@ export function useCreateAgent() {
       const agentId = `bc-${Crypto.randomUUID()}`;
       try {
         const result = await createAgent(key, { ...body, agentId });
-        await rememberAgentProjects({ [result.agent.id]: agentProjectEntry(result.agent) });
+        await rememberAgentProjects({
+          [result.agent.id]: agentProjectEntry(result.agent, { modelId: body.model?.id }),
+        });
         if (body.repos?.[0]?.url) {
           await rememberRepo(body.repos[0].url);
+        }
+        if (body.model?.id) {
+          await rememberAgentModel(result.agent.id, body.model.id);
         }
         if (body.env?.name || body.model?.id) {
           const prefs = await loadPrefs();
@@ -321,6 +346,12 @@ export function useCreateAgent() {
       }
     },
     onSuccess: (result, body) => {
+      queryClient.setQueryData(['agent', result.agent.id], {
+        ...result.agent,
+        status: result.agent.status ?? 'ACTIVE',
+        latestRunId: result.run.id,
+      });
+      queryClient.setQueryData(['run', result.agent.id, result.run.id], result.run);
       void queryClient.invalidateQueries({ queryKey: ['agents'] });
       const text = body.prompt?.text?.trim();
       if (text) {
@@ -350,22 +381,29 @@ export function useCreateFollowUp(agentId: string) {
     },
     onMutate: async (input) => {
       const key = ['conversation', agentId] as const;
-      await queryClient.cancelQueries({ queryKey: key });
       const previous = queryClient.getQueryData<AgentConversation>(key);
-      queryClient.setQueryData<AgentConversation>(key, seedUserMessage(previous, agentId, input.prompt.text));
-      return { previous };
+      await queryClient.cancelQueries({ queryKey: key });
+      const retained = queryClient.getQueryData<AgentConversation>(key) ?? previous;
+      queryClient.setQueryData<AgentConversation>(key, seedUserMessage(retained, agentId, input.prompt.text));
+      return { previous: retained };
     },
     onError: (_error, _input, context) => {
       if (context?.previous) {
         queryClient.setQueryData(['conversation', agentId], context.previous);
       }
     },
-    onSuccess: () => {
+    onSuccess: (result, input) => {
+      queryClient.setQueryData(['run', agentId, result.run.id], result.run);
+      queryClient.setQueryData(['agent', agentId], (current: Agent | undefined) =>
+        current ? { ...current, status: 'ACTIVE', latestRunId: result.run.id } : current,
+      );
+      if (input.model?.id) {
+        void rememberAgentModel(agentId, input.model.id);
+      }
       void queryClient.invalidateQueries({ queryKey: ['agent', agentId] });
       void queryClient.invalidateQueries({ queryKey: ['runs', agentId] });
       void queryClient.invalidateQueries({ queryKey: ['run', agentId] });
       void queryClient.invalidateQueries({ queryKey: ['usage', agentId] });
-      void queryClient.invalidateQueries({ queryKey: ['conversation', agentId] });
     },
   });
 }
@@ -383,9 +421,16 @@ export function useCancelRun(agentId: string) {
         throw error;
       }
     },
-    onSuccess: () => {
+    onSuccess: (_result, runId) => {
+      queryClient.setQueryData(['run', agentId, runId], (current: { status?: string } | undefined) =>
+        current ? { ...current, status: 'CANCELLED' } : current,
+      );
+      queryClient.setQueryData(['agent', agentId], (current: Agent | undefined) =>
+        current ? { ...current, status: 'IDLE' } : current,
+      );
       void queryClient.invalidateQueries({ queryKey: ['agent', agentId] });
       void queryClient.invalidateQueries({ queryKey: ['runs', agentId] });
+      void queryClient.invalidateQueries({ queryKey: ['run', agentId, runId] });
     },
   });
 }

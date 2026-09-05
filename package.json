@@ -36,7 +36,7 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
-    "test:sse": "node --experimental-strip-types --no-warnings scripts/check-sse.mts",
+    "test:sse": "node --experimental-strip-types --no-warnings scripts/check-sse.mts && node scripts/check-proxy.js",
     "test:iat": "npx --yes tsx scripts/check-iat.mts"
   },
   "private": true
