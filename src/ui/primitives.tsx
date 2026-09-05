@@ -1,4 +1,5 @@
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { webNoOutline } from './webStyles';
 import { colors, radius, spacing } from '../theme';
 
 type ButtonProps = {
@@ -56,7 +57,8 @@ export function Field({
         secureTextEntry={secureTextEntry}
         autoCapitalize={autoCapitalize}
         autoCorrect={false}
-        style={[styles.input, multiline && styles.multiline]}
+        underlineColorAndroid="transparent"
+        style={[styles.input, multiline && styles.multiline, webNoOutline]}
       />
     </View>
   );

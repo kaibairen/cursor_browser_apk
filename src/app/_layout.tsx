@@ -4,7 +4,7 @@ import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
-import { ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, Platform, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider, useAuth } from '../features/auth/AuthContext';
 import { colors } from '../theme';
@@ -51,6 +51,14 @@ function AuthGate({ children }: { children: ReactNode }) {
 
 export default function RootLayout() {
   const [client] = useState(() => queryClient);
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof document === 'undefined') return;
+    const style = document.createElement('style');
+    style.textContent = 'textarea,input{outline:none!important;box-shadow:none!important;}';
+    document.head.appendChild(style);
+    return () => style.remove();
+  }, []);
 
   return (
     <SafeAreaProvider>

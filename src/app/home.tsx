@@ -41,6 +41,7 @@ import { Composer, RepoSourceBar } from '../ui/composer';
 import { AccountMenuPopover, SETTINGS_HREF } from '../ui/accountMenu';
 import { AvatarButton } from '../ui/primitives';
 import { ActionSheet } from '../ui/sheet';
+import { webNoOutline } from '../ui/webStyles';
 
 type Picker = 'model' | 'repo' | null;
 
@@ -228,7 +229,8 @@ export default function AgentsHomeScreen() {
                   onChangeText={setQuery}
                   placeholder="搜索"
                   placeholderTextColor={colors.muted}
-                  style={styles.search}
+                  underlineColorAndroid="transparent"
+                  style={[styles.search, webNoOutline]}
                 />
               </View>
             </View>

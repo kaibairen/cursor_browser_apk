@@ -1,6 +1,8 @@
 import type { ReactNode } from 'react';
+import { useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { colors, radius, spacing } from '../theme';
+import { webNoOutline } from './webStyles';
 
 type ComposerProps = {
   value: string;
@@ -53,13 +55,15 @@ export function Composer({
   onMicEnd,
   children,
 }: ComposerProps) {
+  const [focused, setFocused] = useState(false);
+
   function submit() {
     if (!value.trim() || submitting) return;
     onSubmit();
   }
 
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, focused && styles.cardFocused]}>
       {children}
       <TextInput
         value={value}
@@ -70,7 +74,10 @@ export function Composer({
         autoCapitalize="sentences"
         autoCorrect
         editable={!submitting}
-        style={styles.input}
+        underlineColorAndroid="transparent"
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        style={[styles.input, webNoOutline]}
       />
       {attachLabel ? <Text style={styles.attachHint}>{attachLabel}</Text> : null}
       {hint ? <Text style={styles.hint}>{hint}</Text> : null}
@@ -129,20 +136,28 @@ const styles = StyleSheet.create({
     backgroundColor: colors.card,
     borderRadius: radius.lg,
     paddingHorizontal: spacing.md,
-    paddingTop: spacing.sm,
+    paddingTop: 12,
     paddingBottom: spacing.sm,
     borderWidth: 1,
     borderColor: colors.border,
     gap: 8,
+  },
+  cardFocused: {
+    borderColor: '#c8c8c2',
   },
   input: {
     minHeight: 72,
     maxHeight: 160,
     color: colors.text,
     fontSize: 16,
-    lineHeight: 22,
+    lineHeight: 24,
     textAlignVertical: 'top',
-    paddingTop: 6,
+    paddingTop: 2,
+    paddingBottom: 4,
+    paddingHorizontal: 0,
+    margin: 0,
+    borderWidth: 0,
+    backgroundColor: 'transparent',
   },
   attachHint: { color: colors.muted, fontSize: 12 },
   hint: { color: colors.muted, fontSize: 12, lineHeight: 16 },
