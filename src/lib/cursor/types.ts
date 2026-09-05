@@ -84,6 +84,8 @@ export interface Run {
   durationMs?: number;
   result?: string;
   git?: { branches: GitBranch[] };
+  additions?: number;
+  deletions?: number;
 }
 
 export interface Paginated<T> {

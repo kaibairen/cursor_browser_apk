@@ -11,15 +11,16 @@ import { AccountMenuPopover, SETTINGS_TITLES, type SettingsPageId } from '../ui/
 import { ChatLoading } from '../ui/chatLoading';
 import { ChatText } from '../ui/chatText';
 import { UserBubble } from '../ui/userBubble';
+import { AgentRowMeta, AgentStatusIcon } from '../ui/agentRow';
 import { Composer, RepoSourceBar } from '../ui/composer';
 import { AvatarButton, Segmented } from '../ui/primitives';
 import { SettingsChrome } from '../ui/settingsChrome';
 import { ActionSheet } from '../ui/sheet';
 
 const DEMO_ROWS = [
-  { title: '记忆系统对齐分析', meta: 'neo-cloud-agent', time: '18m', done: true },
+  { title: '记忆系统对齐分析', meta: 'neo-cloud-agent', time: '18m', done: true, additions: 464, deletions: 81 },
   { title: '对话存储方式', meta: 'neo-cloud-agent', time: '7h', done: false },
-  { title: 'Cursor 网页集成可行性', meta: 'cursor_browser_apk', time: '7h', done: false },
+  { title: 'Cursor 网页集成可行性', meta: 'cursor_browser_apk', time: '7h', done: true, additions: 10774, deletions: 1 },
 ];
 
 const DEMO_MARKDOWN = `## 3. 基于什么指标，对应什么情况
@@ -222,10 +223,10 @@ export default function PreviewScreen() {
                   setPage('detail');
                 }}
               >
-                <Text style={styles.glyph}>{row.done ? '✓' : '⎇'}</Text>
-                <View style={{ flex: 1 }}>
+                <AgentStatusIcon status={row.done ? 'IDLE' : 'ACTIVE'} />
+                <View style={{ flex: 1, minWidth: 0 }}>
                   <Text style={styles.rowTitle}>{row.title}</Text>
-                  <Text style={styles.rowMeta}>{row.meta}</Text>
+                  <AgentRowMeta repo={row.meta} additions={row.additions} deletions={row.deletions} />
                 </View>
                 <Text style={styles.time}>{row.time}</Text>
               </Pressable>

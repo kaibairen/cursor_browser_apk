@@ -138,11 +138,79 @@ function proxyCursorApi(req, res) {
   req.pipe(upstream);
 }
 
+function parseGithubPr(url) {
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== 'https:' || !/^(www\.)?github\.com$/i.test(parsed.hostname)) {
+    return null;
+  }
+  const match = parsed.pathname.match(/^\/([^/]+)\/([^/]+)\/pulls?\/(\d+)/i);
+  if (!match) return null;
+  return { owner: match[1], repo: match[2].replace(/\.git$/, ''), number: match[3] };
+}
+
+function proxyGithubPr(req, res) {
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    json(res, 405, { message: '只支持 GET' });
+    return;
+  }
+  const incoming = new URL(req.url || '/', 'http://127.0.0.1');
+  const parsed = parseGithubPr(incoming.searchParams.get('url') || '');
+  if (!parsed) {
+    json(res, 400, { message: '无效的 PR 地址' });
+    return;
+  }
+
+  const upstream = https.request(
+    {
+      hostname: 'api.github.com',
+      path: `/repos/${parsed.owner}/${parsed.repo}/pulls/${parsed.number}`,
+      method: 'GET',
+      headers: {
+        accept: 'application/vnd.github+json',
+        'user-agent': 'agents-console',
+      },
+    },
+    (up) => {
+      const chunks = [];
+      up.on('data', (chunk) => chunks.push(chunk));
+      up.on('end', () => {
+        if (res.headersSent) return;
+        if ((up.statusCode || 502) >= 400) {
+          json(res, up.statusCode || 502, { message: '无法读取 PR' });
+          return;
+        }
+        try {
+          const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+          json(res, 200, {
+            additions: Number(body.additions) || 0,
+            deletions: Number(body.deletions) || 0,
+          });
+        } catch {
+          json(res, 502, { message: '无法读取 PR' });
+        }
+      });
+    },
+  );
+  upstream.on('error', () => {
+    if (!res.headersSent) json(res, 502, { message: '无法连接 GitHub' });
+  });
+  upstream.end();
+}
+
 function attachCursorApiProxy(metroMiddleware) {
   return function cursorApiMiddleware(req, res, next) {
     const pathname = new URL(req.url || '/', 'http://127.0.0.1').pathname;
     if (pathname === `${PREFIX}/artifact`) {
       proxyArtifact(req, res);
+      return;
+    }
+    if (pathname === `${PREFIX}/github-pr`) {
+      proxyGithubPr(req, res);
       return;
     }
     if (pathname.startsWith(`${PREFIX}/`) || pathname === PREFIX) {

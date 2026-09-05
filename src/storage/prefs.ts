@@ -6,6 +6,11 @@ const PREFS_KEY = 'agents_console_prefs_v1';
 export type AgentProject = {
   repoUrl?: string;
   envName?: string;
+  latestRunId?: string;
+  prUrl?: string;
+  additions?: number;
+  deletions?: number;
+  stamp?: string;
 };
 
 export type AppPrefs = {
@@ -58,7 +63,16 @@ export async function rememberAgentProjects(entries: Record<string, AgentProject
   const merged = { ...current };
   for (const [id, next] of Object.entries(entries)) {
     const prev = current[id];
-    if (prev?.repoUrl === next.repoUrl && prev?.envName === next.envName) continue;
+    if (
+      prev?.repoUrl === next.repoUrl &&
+      prev?.envName === next.envName &&
+      prev?.stamp === next.stamp &&
+      prev?.prUrl === next.prUrl &&
+      prev?.additions === next.additions &&
+      prev?.deletions === next.deletions
+    ) {
+      continue;
+    }
     merged[id] = next;
     changed = true;
   }

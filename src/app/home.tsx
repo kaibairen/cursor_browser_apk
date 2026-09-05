@@ -13,7 +13,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { agentSubtitle, agentTitle, initials, statusGlyph } from '../features/agents/display';
+import { agentSubtitle, agentTitle, initials } from '../features/agents/display';
 import { pickImages, toPromptImages, type PickedImage } from '../features/agents/images';
 import {
   groupByProject,
@@ -41,6 +41,7 @@ import { Composer, RepoSourceBar } from '../ui/composer';
 import { AccountMenuPopover, SETTINGS_HREF } from '../ui/accountMenu';
 import { AvatarButton } from '../ui/primitives';
 import { ActionSheet } from '../ui/sheet';
+import { AgentRowMeta, AgentStatusIcon } from '../ui/agentRow';
 import { webNoOutline } from '../ui/webStyles';
 
 type Picker = 'model' | 'repo' | null;
@@ -246,16 +247,17 @@ export default function AgentsHomeScreen() {
                 router.push(`/agent/${item.id}`);
               }}
             >
-              <Text style={[styles.glyph, item.status === 'ACTIVE' && styles.live]}>{statusGlyph(item.status)}</Text>
+              <AgentStatusIcon status={item.status} />
               <View style={styles.rowBody}>
                 <Text style={styles.rowTitle} numberOfLines={1}>
                   {agentTitle(item)}
                 </Text>
-                <Text style={styles.rowMeta} numberOfLines={1}>
-                  {agentSubtitle(item, projectOf(item, projects).title)}
-                </Text>
+                <AgentRowMeta
+                  repo={agentSubtitle(item, projectOf(item, projects).title)}
+                  additions={projects[item.id]?.additions}
+                  deletions={projects[item.id]?.deletions}
+                />
               </View>
-              {item.status === 'ACTIVE' ? <View style={styles.dot} /> : null}
               <Text style={styles.time}>{formatRelative(item.updatedAt)}</Text>
             </Pressable>
           )}
@@ -352,12 +354,8 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingVertical: 12,
   },
-  glyph: { width: 18, textAlign: 'center', color: colors.muted, fontSize: 14 },
-  live: { color: colors.live },
-  rowBody: { flex: 1, gap: 2 },
+  rowBody: { flex: 1, gap: 2, minWidth: 0 },
   rowTitle: { color: colors.text, fontSize: 16, fontWeight: '600' },
-  rowMeta: { color: colors.muted, fontSize: 13 },
   time: { color: colors.muted, fontSize: 13 },
-  dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: colors.live },
   empty: { color: colors.muted, textAlign: 'center', marginTop: 28, lineHeight: 22 },
 });
