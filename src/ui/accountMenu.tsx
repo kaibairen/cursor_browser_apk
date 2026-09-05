@@ -2,18 +2,16 @@ import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, radius, spacing } from '../theme';
 
-export type AccountMenuId = 'account' | 'workspace' | 'speech' | 'about' | 'logout';
+export type AccountMenuId = 'workspace' | 'speech' | 'about' | 'logout';
 export type SettingsPageId = Exclude<AccountMenuId, 'logout'>;
 
 export const SETTINGS_HREF = {
-  account: '/settings/account',
   workspace: '/settings/workspace',
   speech: '/settings/speech',
   about: '/settings/about',
 } as const;
 
 export const SETTINGS_TITLES: Record<SettingsPageId, string> = {
-  account: '账号',
   workspace: '默认仓库',
   speech: '语音听写',
   about: '关于',
@@ -30,10 +28,7 @@ type Row = {
 
 const GROUPS: Row[][] = [
   [
-    { id: 'account', icon: '◎', label: '账号', chevron: true },
     { id: 'workspace', icon: '⎇', label: '默认仓库', chevron: true },
-  ],
-  [
     { id: 'speech', icon: '🎤', label: '语音听写', chevron: true },
     { id: 'about', icon: '?', label: '关于', chevron: true },
   ],

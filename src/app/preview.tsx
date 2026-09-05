@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AboutPanel } from '../features/settings/AboutPanel';
-import { AccountPanel } from '../features/settings/AccountPanel';
 import { SpeechPanel } from '../features/settings/SpeechPanel';
 import { WorkspacePanel } from '../features/settings/WorkspacePanel';
 import { useVoiceInput } from '../features/speech/useVoiceInput';
@@ -59,7 +58,6 @@ export default function PreviewScreen() {
   if (settingsPage) {
     return (
       <SettingsChrome title={SETTINGS_TITLES[settingsPage]} onBack={() => setSettingsPage(null)}>
-        {settingsPage === 'account' ? <AccountPanel /> : null}
         {settingsPage === 'workspace' ? <WorkspacePanel /> : null}
         {settingsPage === 'speech' ? <SpeechPanel /> : null}
         {settingsPage === 'about' ? <AboutPanel /> : null}
