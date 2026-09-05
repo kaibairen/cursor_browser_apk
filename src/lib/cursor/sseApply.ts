@@ -9,6 +9,7 @@ export type TranscriptLine =
 export type StreamApplyContext = {
   lastEventId?: string;
   simplified: { assistant: boolean; thinking: boolean };
+  pendingRetry?: boolean;
 };
 
 export type StreamApplyResult = {
@@ -40,6 +41,7 @@ export function applySseEvent(
   if (event.event === 'assistant' || event.event === 'thinking') {
     const text = readTextPayload(event.data);
     if (!text) return { lines, lastEventId, terminal: false };
+    ctx.pendingRetry = false;
     if (event.event === 'assistant') ctx.simplified.assistant = true;
     else ctx.simplified.thinking = true;
     return {
@@ -58,6 +60,7 @@ export function applySseEvent(
   }
 
   if (event.event === 'result') {
+    ctx.pendingRetry = false;
     try {
       const payload = JSON.parse(event.data) as {
         text?: string;
@@ -81,6 +84,9 @@ export function applySseEvent(
   }
 
   if (event.event === 'done') {
+    if (ctx.pendingRetry) {
+      return { lines, lastEventId, terminal: false, retry: true };
+    }
     return { lines: finishThinking(lines), lastEventId, terminal: true };
   }
 
@@ -88,6 +94,7 @@ export function applySseEvent(
     try {
       const payload = JSON.parse(event.data) as { code?: string };
       if (payload.code === 'stream_unavailable') {
+        ctx.pendingRetry = true;
         return { lines, lastEventId, terminal: false, retry: true };
       }
     } catch {

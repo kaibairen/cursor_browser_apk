@@ -37,7 +37,7 @@ import {
   type PromptInput,
 } from '../../lib/cursor/types';
 import { useAuth, useOptionalApiKey } from '../auth/AuthContext';
-import { loadPrefs, rememberAgentProjects, rememberRepo, savePrefs } from '../../storage/prefs';
+import { loadPrefs, rememberAgentModel, rememberAgentProjects, rememberRepo, savePrefs } from '../../storage/prefs';
 import { mergePreservingLocalUsers, seedUserMessage } from './conversationView';
 import { agentProjectEntry } from './projects';
 
@@ -302,9 +302,14 @@ export function useCreateAgent() {
       const agentId = `bc-${Crypto.randomUUID()}`;
       try {
         const result = await createAgent(key, { ...body, agentId });
-        await rememberAgentProjects({ [result.agent.id]: agentProjectEntry(result.agent) });
+        await rememberAgentProjects({
+          [result.agent.id]: agentProjectEntry(result.agent, { modelId: body.model?.id }),
+        });
         if (body.repos?.[0]?.url) {
           await rememberRepo(body.repos[0].url);
+        }
+        if (body.model?.id) {
+          await rememberAgentModel(result.agent.id, body.model.id);
         }
         if (body.env?.name || body.model?.id) {
           const prefs = await loadPrefs();
@@ -367,11 +372,14 @@ export function useCreateFollowUp(agentId: string) {
         queryClient.setQueryData(['conversation', agentId], context.previous);
       }
     },
-    onSuccess: (result) => {
+    onSuccess: (result, input) => {
       queryClient.setQueryData(['run', agentId, result.run.id], result.run);
       queryClient.setQueryData(['agent', agentId], (current: Agent | undefined) =>
         current ? { ...current, status: 'ACTIVE', latestRunId: result.run.id } : current,
       );
+      if (input.model?.id) {
+        void rememberAgentModel(agentId, input.model.id);
+      }
       void queryClient.invalidateQueries({ queryKey: ['agent', agentId] });
       void queryClient.invalidateQueries({ queryKey: ['runs', agentId] });
       void queryClient.invalidateQueries({ queryKey: ['run', agentId] });

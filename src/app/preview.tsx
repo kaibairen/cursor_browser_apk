@@ -73,7 +73,7 @@ export default function PreviewScreen() {
   const [homeText, setHomeText] = useState('');
   const [follow, setFollow] = useState('');
   const [thread, setThread] = useState<DemoTurn[]>(EXAMPLE_THREAD);
-  const [model, setModel] = useState('默认模型');
+  const [model, setModel] = useState('Composer');
   const [picker, setPicker] = useState<'model' | 'repo' | null>(null);
   const [repo, setRepo] = useState('默认仓库');
   const [more, setMore] = useState(false);
@@ -198,7 +198,7 @@ export default function PreviewScreen() {
             }}
             submitting={false}
             onStop={turn.waiting ? turn.stop : undefined}
-            modelLabel={model === '默认模型' ? '沿用此任务模型' : model}
+            modelLabel={model}
             onModelPress={() => setPicker('model')}
             listening={followVoice.listening}
             onMicStart={followVoice.onMicStart}
@@ -209,12 +209,13 @@ export default function PreviewScreen() {
         <ActionSheet
           visible={picker === 'model'}
           title="选择模型"
-          message="这一轮追问可以换模型。"
+          message="这一轮追问用下面列出的模型。"
           items={[
-            { id: '默认模型', label: '沿用此任务模型' },
             { id: 'Composer', label: 'Composer' },
             { id: 'Auto', label: 'Auto' },
+            { id: 'Cursor Grok 4.6', label: 'Cursor Grok 4.6' },
           ]}
+          selectedId={model}
           onClose={() => setPicker(null)}
           onSelect={setModel}
         />
@@ -285,10 +286,11 @@ export default function PreviewScreen() {
         title="选择模型"
         message="只在新建任务时生效。"
         items={[
-          { id: '默认模型', label: '默认模型' },
           { id: 'Composer', label: 'Composer' },
           { id: 'Auto', label: 'Auto' },
+          { id: 'Cursor Grok 4.6', label: 'Cursor Grok 4.6' },
         ]}
+        selectedId={model}
         onClose={() => setPicker(null)}
         onSelect={setModel}
       />

@@ -8,9 +8,21 @@ export { consumeSseBuffer, parseSseBlock } from './sseParse';
 
 export type StreamHandlers = {
   onEvent: (event: SseEvent) => void;
+  onEvents?: (events: SseEvent[]) => void;
   onError?: (error: Error) => void;
   onOpen?: () => void;
 };
+
+function emitEvents(handlers: StreamHandlers, events: SseEvent[]): void {
+  if (!events.length) return;
+  if (handlers.onEvents) {
+    handlers.onEvents(events);
+    return;
+  }
+  for (const event of events) {
+    handlers.onEvent(event);
+  }
+}
 
 export function openRunStream(
   apiKey: string,
@@ -26,6 +38,7 @@ function streamHeaders(apiKey: string, lastEventId?: string): Record<string, str
   const headers: Record<string, string> = {
     Accept: 'text/event-stream',
     Authorization: `Bearer ${apiKey}`,
+    'Cache-Control': 'no-cache',
   };
   if (lastEventId) headers['Last-Event-ID'] = lastEventId;
   return headers;
@@ -69,15 +82,11 @@ function openFetchStream(
         buffer += decoder.decode(value, { stream: true });
         const consumed = consumeSseBuffer(buffer);
         buffer = consumed.rest;
-        for (const event of consumed.events) {
-          handlers.onEvent(event);
-        }
+        emitEvents(handlers, consumed.events);
       }
       if (buffer.trim()) {
         const consumed = consumeSseBuffer(`${buffer}\n\n`);
-        for (const event of consumed.events) {
-          handlers.onEvent(event);
-        }
+        emitEvents(handlers, consumed.events);
       }
     } catch (error) {
       if (controller.signal.aborted) return;
@@ -113,9 +122,7 @@ function openXhrStream(
     buffer += chunk;
     const consumed = consumeSseBuffer(buffer);
     buffer = consumed.rest;
-    for (const event of consumed.events) {
-      handlers.onEvent(event);
-    }
+    emitEvents(handlers, consumed.events);
   };
 
   xhr.onprogress = () => {

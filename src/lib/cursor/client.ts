@@ -19,6 +19,7 @@ import type {
   ConversationMessage,
   ConversationMode,
 } from './types';
+import { readModelId } from './modelId';
 
 function apiOrigin(): string {
   return Platform.OS === 'web' ? '/cursor-api' : 'https://api.cursor.com';
@@ -139,8 +140,13 @@ export function listAgents(
   return cursorFetch<Paginated<AgentListItem>>(apiKey, `/v1/agents?${search.toString()}`);
 }
 
-export function getAgent(apiKey: string, id: string): Promise<Agent> {
-  return cursorFetch<Agent>(apiKey, `/v1/agents/${id}`);
+function withModel<T extends { model?: { id: string } }>(value: T): T {
+  const id = readModelId(value);
+  return id ? { ...value, model: { id } } : value;
+}
+
+export async function getAgent(apiKey: string, id: string): Promise<Agent> {
+  return withModel(await cursorFetch<Agent>(apiKey, `/v1/agents/${id}`));
 }
 
 function messageText(row: Record<string, unknown>): string {
@@ -254,8 +260,8 @@ export function listRuns(
   );
 }
 
-export function getRun(apiKey: string, agentId: string, runId: string): Promise<Run> {
-  return cursorFetch<Run>(apiKey, `/v1/agents/${agentId}/runs/${runId}`);
+export async function getRun(apiKey: string, agentId: string, runId: string): Promise<Run> {
+  return withModel(await cursorFetch<Run>(apiKey, `/v1/agents/${agentId}/runs/${runId}`));
 }
 
 export function cancelRun(apiKey: string, agentId: string, runId: string): Promise<{ id: string }> {

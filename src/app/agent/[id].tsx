@@ -52,6 +52,8 @@ import { githubHttpsUrl, openExternal } from '../../ui/openUrl';
 import { Segmented } from '../../ui/primitives';
 import { ActionSheet } from '../../ui/sheet';
 import { useVoiceInput } from '../../features/speech/useVoiceInput';
+import { modelDisplayName, resolveStoredModelId } from '../../features/agents/models';
+import { loadPrefs, rememberAgentModel } from '../../storage/prefs';
 
 export default function AgentDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -84,6 +86,7 @@ export default function AgentDetailScreen() {
   const thinkingStarted = useRef<number | null>(null);
   const [modelId, setModelId] = useState('');
   const [modelPicker, setModelPicker] = useState(false);
+  const modelReady = useRef(false);
   const [images, setImages] = useState<PickedImage[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -108,6 +111,37 @@ export default function AgentDetailScreen() {
       });
     });
   }, [conversation.data?.messages, conversation.isFetching]);
+
+  useEffect(() => {
+    modelReady.current = false;
+    setModelId('');
+  }, [agentId]);
+
+  useEffect(() => {
+    const apiModel = agent?.model?.id || run?.model?.id;
+    if (apiModel && apiModel !== modelId) {
+      setModelId(apiModel);
+      modelReady.current = true;
+      if (agentId) void rememberAgentModel(agentId, apiModel);
+      return;
+    }
+    if (modelReady.current && modelId) return;
+    let cancelled = false;
+    void loadPrefs().then((prefs) => {
+      if (cancelled) return;
+      const next = resolveStoredModelId(
+        apiModel || prefs.agentProjects?.[agentId]?.modelId,
+        prefs.defaultModelId,
+        models.data?.items,
+      );
+      if (!next) return;
+      setModelId(next);
+      modelReady.current = true;
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [agentId, agent?.model?.id, run?.model?.id, modelId, models.data?.items]);
 
   useEffect(() => {
     if (!(live || followUp.isPending || stream.lines.length)) return;
@@ -389,11 +423,7 @@ export default function AgentDetailScreen() {
                   : undefined
               }
               stopping={cancel.isPending}
-              modelLabel={
-                modelId
-                  ? models.data?.items.find((item) => item.id === modelId)?.displayName || modelId
-                  : '沿用此任务模型'
-              }
+              modelLabel={modelDisplayName(modelId, models.data?.items) || '选择模型'}
               onModelPress={() => setModelPicker(true)}
               hint={voice.error ?? undefined}
               listening={voice.listening}
@@ -414,17 +444,18 @@ export default function AgentDetailScreen() {
       <ActionSheet
         visible={modelPicker}
         title="选择模型"
-        message="这一轮追问可以换模型。不选就继续用这条任务当前的模型。"
-        items={[
-          { id: '', label: '沿用此任务模型', hint: '不改模型' },
-          ...(models.data?.items ?? []).map((item) => ({
-            id: item.id,
-            label: item.displayName || item.id,
-            hint: item.description,
-          })),
-        ]}
+        message="这一轮追问用下面列出的模型。芯片上就是当前这条任务在用的模型。"
+        items={(models.data?.items ?? []).map((item) => ({
+          id: item.id,
+          label: item.displayName || item.id,
+          hint: item.description,
+        }))}
+        selectedId={modelId}
         onClose={() => setModelPicker(false)}
-        onSelect={setModelId}
+        onSelect={(id) => {
+          setModelId(id);
+          void rememberAgentModel(agentId, id);
+        }}
       />
       <ActionSheet
         visible={menuOpen}

@@ -276,8 +276,9 @@ export default function AgentsHomeScreen() {
       <ActionSheet
         visible={picker === 'model'}
         title="选择模型"
-        message="只在新建任务时生效。追问会沿用这条任务的模型。"
+        message="只在新建任务时生效。选中的就是这一轮会用的模型。"
         items={modelOptions}
+        selectedId={modelId}
         onClose={() => setPicker(null)}
         onSelect={setModelId}
       />

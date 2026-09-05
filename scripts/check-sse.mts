@@ -1,6 +1,9 @@
 import { consumeSseBuffer, parseSseBlock } from '../src/lib/cursor/sseParse.ts';
 import { applySseEvent, ensureThinkingLine, type TranscriptLine } from '../src/lib/cursor/sseApply.ts';
 import { isLocalUserId, mergePreservingLocalUsers, seedUserMessage } from '../src/features/agents/conversationView.ts';
+import { eventPhase, prepareBurst, replayDelayMs } from '../src/lib/cursor/ssePace.ts';
+import { defaultCatalogModelId, resolveStoredModelId } from '../src/features/agents/models.ts';
+import { readModelId } from '../src/lib/cursor/modelId.ts';
 
 const parsed = parseSseBlock('id: 1\nevent: assistant\ndata: {"text":"hi"}');
 if (!parsed || parsed.event !== 'assistant' || parsed.id !== '1' || parsed.data !== '{"text":"hi"}') {
@@ -71,13 +74,23 @@ if (thinkingFirst.lines.length !== 1 || thinkingFirst.lines[0]?.text !== '想') 
   throw new Error('paired thinking events should not duplicate');
 }
 
+const unavailableCtx = { simplified: { assistant: false, thinking: false }, pendingRetry: false };
 const unavailable = applySseEvent(
   { event: 'error', data: '{"code":"stream_unavailable"}' },
   [],
-  { simplified: { assistant: false, thinking: false } },
+  unavailableCtx,
 );
 if (!unavailable.retry || unavailable.terminal) {
   throw new Error('stream_unavailable should retry, not end the run');
+}
+
+const doneAfterUnavailable = applySseEvent(
+  { event: 'done', data: '{}' },
+  [],
+  unavailableCtx,
+);
+if (!doneAfterUnavailable.retry || doneAfterUnavailable.terminal) {
+  throw new Error('done after stream_unavailable should retry, not end the run');
 }
 
 const interactionOnly = play([
@@ -118,6 +131,53 @@ if (mergedDup.length !== 2 || mergedDup[1]?.id !== 'pending-2') {
 const seeded = seedUserMessage({ id: 'a', messages: [{ id: 's1', type: 'user_message', text: '你好吗' }] }, 'a', '你好吗');
 if (seeded.messages.length !== 2) {
   throw new Error('seedUserMessage should allow the same text on a later turn');
+}
+
+const burst = prepareBurst([
+  { event: 'thinking', data: '{"text":"先看问题再决定怎么回答"}', id: '1' },
+  { event: 'interaction_update', data: '{"type":"thinking-delta","text":"先看问题再决定怎么回答"}' },
+  { event: 'interaction_update', data: '{"type":"thinking-completed","thinkingDurationMs":1200}' },
+  { event: 'assistant', data: '{"text":"黑色气泡会先出现。"}' },
+  { event: 'interaction_update', data: '{"type":"text-delta","text":"黑色气泡会先出现。"}' },
+]);
+if (burst.some((event) => event.event === 'interaction_update' && event.data.includes('thinking-delta'))) {
+  throw new Error('burst should drop paired thinking-delta');
+}
+if (burst.some((event) => event.event === 'interaction_update' && event.data.includes('text-delta'))) {
+  throw new Error('burst should drop paired text-delta');
+}
+if (burst.filter((event) => event.event === 'thinking').length < 2) {
+  throw new Error('long thinking should be split for replay');
+}
+if (burst.filter((event) => event.event === 'assistant').length < 2) {
+  throw new Error('long assistant should be split for replay');
+}
+if (replayDelayMs({ event: 'interaction_update', data: '{"type":"thinking-completed"}' }) < 200) {
+  throw new Error('thinking-completed should pause before the reply');
+}
+if (eventPhase({ event: 'thinking', data: '{"text":"x"}' }) !== 'thinking') {
+  throw new Error('thinking phase');
+}
+
+const paced = play(burst);
+if (paced.lines[0]?.kind !== 'thinking' || !String(paced.lines[0].text).includes('先看')) {
+  throw new Error(`paced thinking failed: ${JSON.stringify(paced.lines[0])}`);
+}
+
+if (defaultCatalogModelId([{ id: 'a', displayName: 'A' }, { id: 'b', displayName: 'B', variants: [{ params: [], displayName: 'B', isDefault: true }] }]) !== 'b') {
+  throw new Error('defaultCatalogModelId should pick isDefault');
+}
+if (resolveStoredModelId('kept', 'fallback') !== 'kept') {
+  throw new Error('stored model should win');
+}
+if (resolveStoredModelId(undefined, 'fallback') !== 'fallback') {
+  throw new Error('fallback model should win');
+}
+if (readModelId({ model: { id: 'composer-2' } }) !== 'composer-2') {
+  throw new Error('readModelId object failed');
+}
+if (readModelId({ modelId: 'grok' }) !== 'grok') {
+  throw new Error('readModelId string failed');
 }
 
 console.log('sse parse + apply ok');
