@@ -17,12 +17,14 @@ import { agentSubtitle, agentTitle, initials, statusGlyph } from '../features/ag
 import { pickImages, toPromptImages, type PickedImage } from '../features/agents/images';
 import { useAgentList, useCreateAgent, useModels, useRepositories } from '../features/agents/queries';
 import { useAuth } from '../features/auth/AuthContext';
+import { accountName } from '../features/settings/identity';
 import type { AgentListItem, ConversationMode, CreateAgentRequest } from '../lib/cursor/types';
 import { dateGroup, dateGroupLabel, formatRelative, type DateGroup } from '../lib/format';
 import { usePrefs } from '../storage/usePrefs';
 import { colors, spacing } from '../theme';
 import { useVoiceInput } from '../features/speech/useVoiceInput';
 import { Composer } from '../ui/composer';
+import { AccountMenuPopover, SETTINGS_HREF } from '../ui/accountMenu';
 import { AvatarButton } from '../ui/primitives';
 import { ActionSheet } from '../ui/sheet';
 
@@ -35,7 +37,7 @@ export default function AgentsHomeScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const focused = useIsFocused();
-  const { me } = useAuth();
+  const { me, signOut } = useAuth();
   const { prefs } = usePrefs();
   const models = useModels();
   const repos = useRepositories();
@@ -53,6 +55,7 @@ export default function AgentsHomeScreen() {
   const [error, setError] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
   const [picker, setPicker] = useState<Picker>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
   const voice = useVoiceInput(text, setText);
 
   useEffect(() => {
@@ -152,7 +155,7 @@ export default function AgentsHomeScreen() {
       <View style={[styles.flex, { paddingTop: insets.top + 8 }]}>
         <View style={styles.topBar}>
           <Text style={styles.brand}>Agents</Text>
-          <AvatarButton label={avatar} onPress={() => router.push('/settings')} />
+          <AvatarButton label={avatar} onPress={() => setMenuOpen(true)} />
         </View>
 
         <SectionList
@@ -284,6 +287,20 @@ export default function AgentsHomeScreen() {
         ]}
         onClose={() => setPicker(null)}
         onSelect={(id) => setSource(id as SourceMode)}
+      />
+      <AccountMenuPopover
+        visible={menuOpen}
+        name={accountName(me)}
+        email={me?.userEmail ?? ''}
+        onClose={() => setMenuOpen(false)}
+        onItem={(id) => {
+          setMenuOpen(false);
+          if (id === 'logout') {
+            void signOut();
+            return;
+          }
+          router.push(SETTINGS_HREF[id]);
+        }}
       />
     </KeyboardAvoidingView>
   );
