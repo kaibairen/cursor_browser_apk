@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { colors, radius, spacing } from '../theme';
 
@@ -7,12 +8,12 @@ type ComposerProps = {
   placeholder: string;
   onSubmit: () => void;
   submitting?: boolean;
-  disabled?: boolean;
   modelLabel: string;
   onModelPress?: () => void;
   onAttach?: () => void;
   attachLabel?: string;
-  children?: React.ReactNode;
+  hint?: string;
+  children?: ReactNode;
 };
 
 export function Composer({
@@ -21,14 +22,17 @@ export function Composer({
   placeholder,
   onSubmit,
   submitting,
-  disabled,
   modelLabel,
   onModelPress,
   onAttach,
   attachLabel,
+  hint,
   children,
 }: ComposerProps) {
-  const canSend = Boolean(value.trim()) && !submitting && !disabled;
+  function submit() {
+    if (!value.trim() || submitting) return;
+    onSubmit();
+  }
 
   return (
     <View style={styles.card}>
@@ -41,24 +45,37 @@ export function Composer({
         multiline
         autoCapitalize="sentences"
         autoCorrect
-        editable={!disabled}
+        editable={!submitting}
         style={styles.input}
       />
       {attachLabel ? <Text style={styles.attachHint}>{attachLabel}</Text> : null}
+      {hint ? <Text style={styles.hint}>{hint}</Text> : null}
       <View style={styles.toolbar}>
-        <Pressable onPress={onAttach} style={styles.plus} hitSlop={8}>
+        <Pressable
+          accessibilityRole="button"
+          onPress={onAttach}
+          disabled={!onAttach}
+          style={[styles.plus, { opacity: onAttach ? 1 : 0.45 }]}
+          hitSlop={8}
+        >
           <Text style={styles.plusText}>+</Text>
         </Pressable>
-        <Pressable onPress={onModelPress} style={styles.model} hitSlop={8}>
-          <Text style={styles.modelText} numberOfLines={1}>
-            {modelLabel} ▾
+        {onModelPress ? (
+          <Pressable accessibilityRole="button" onPress={onModelPress} style={styles.model} hitSlop={8}>
+            <Text style={styles.modelText} numberOfLines={1}>
+              {modelLabel} ▾
+            </Text>
+          </Pressable>
+        ) : (
+          <Text style={styles.modelLocked} numberOfLines={1}>
+            {modelLabel}
           </Text>
-        </Pressable>
+        )}
         <View style={{ flex: 1 }} />
         <Pressable
-          onPress={onSubmit}
-          disabled={!canSend}
-          style={[styles.send, { opacity: canSend ? 1 : 0.35 }]}
+          accessibilityRole="button"
+          onPress={submit}
+          style={[styles.send, { opacity: value.trim() && !submitting ? 1 : 0.35 }]}
         >
           {submitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.sendText}>↑</Text>}
         </Pressable>
@@ -88,6 +105,7 @@ const styles = StyleSheet.create({
     paddingTop: 6,
   },
   attachHint: { color: colors.muted, fontSize: 12 },
+  hint: { color: colors.muted, fontSize: 12, lineHeight: 16 },
   toolbar: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   plus: {
     width: 28,
@@ -100,6 +118,7 @@ const styles = StyleSheet.create({
   plusText: { color: colors.text, fontSize: 18, lineHeight: 20, fontWeight: '500' },
   model: { maxWidth: 180, paddingVertical: 4 },
   modelText: { color: colors.text, fontSize: 13, fontWeight: '500' },
+  modelLocked: { maxWidth: 200, color: colors.muted, fontSize: 13, fontWeight: '500' },
   send: {
     width: 32,
     height: 32,

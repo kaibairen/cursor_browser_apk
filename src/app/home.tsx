@@ -1,9 +1,7 @@
 import { useIsFocused, useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import {
-  ActionSheetIOS,
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -15,18 +13,20 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { agentSubtitle, agentTitle, initials, statusGlyph } from '../../features/agents/display';
-import { pickImages, toPromptImages, type PickedImage } from '../../features/agents/images';
-import { useAgentList, useCreateAgent, useModels, useRepositories } from '../../features/agents/queries';
-import { useAuth } from '../../features/auth/AuthContext';
-import type { AgentListItem, ConversationMode, CreateAgentRequest } from '../../lib/cursor/types';
-import { dateGroup, dateGroupLabel, formatRelative, type DateGroup } from '../../lib/format';
-import { usePrefs } from '../../storage/usePrefs';
-import { colors, spacing } from '../../theme';
-import { Composer } from '../../ui/composer';
-import { AvatarButton } from '../../ui/primitives';
+import { agentSubtitle, agentTitle, initials, statusGlyph } from '../features/agents/display';
+import { pickImages, toPromptImages, type PickedImage } from '../features/agents/images';
+import { useAgentList, useCreateAgent, useModels, useRepositories } from '../features/agents/queries';
+import { useAuth } from '../features/auth/AuthContext';
+import type { AgentListItem, ConversationMode, CreateAgentRequest } from '../lib/cursor/types';
+import { dateGroup, dateGroupLabel, formatRelative, type DateGroup } from '../lib/format';
+import { usePrefs } from '../storage/usePrefs';
+import { colors, spacing } from '../theme';
+import { Composer } from '../ui/composer';
+import { AvatarButton } from '../ui/primitives';
+import { ActionSheet } from '../ui/sheet';
 
 type SourceMode = 'none' | 'repo' | 'env';
+type Picker = 'model' | 'source' | null;
 
 const GROUP_ORDER: DateGroup[] = ['today', 'yesterday', 'week', 'older'];
 
@@ -51,6 +51,7 @@ export default function AgentsHomeScreen() {
   const [images, setImages] = useState<PickedImage[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
+  const [picker, setPicker] = useState<Picker>(null);
 
   useEffect(() => {
     if (!prefs || hydrated) return;
@@ -60,6 +61,18 @@ export default function AgentsHomeScreen() {
     setSource(prefs.recentRepos[0] ? 'repo' : prefs.defaultEnvName ? 'env' : 'none');
     setHydrated(true);
   }, [prefs, hydrated]);
+
+  const modelOptions = useMemo(
+    () => [
+      { id: '', label: '默认模型', hint: '交给 Cloud 选' },
+      ...(models.data?.items ?? []).map((item) => ({
+        id: item.id,
+        label: item.displayName || item.id,
+        hint: item.description,
+      })),
+    ],
+    [models.data],
+  );
 
   const modelLabel = useMemo(() => {
     if (!modelId) return '默认模型';
@@ -89,47 +102,6 @@ export default function AgentsHomeScreen() {
       data: buckets.get(group) ?? [],
     }));
   }, [items, query]);
-
-  function chooseSource() {
-    const options: { id: SourceMode; label: string }[] = [
-      { id: 'none', label: '从零开始' },
-      { id: 'repo', label: '指定仓库' },
-      { id: 'env', label: '云端环境' },
-    ];
-    if (Platform.OS === 'ios') {
-      ActionSheetIOS.showActionSheetWithOptions(
-        { options: [...options.map((item) => item.label), '取消'], cancelButtonIndex: options.length },
-        (index) => {
-          if (index < options.length) setSource(options[index]!.id);
-        },
-      );
-      return;
-    }
-    Alert.alert('任务从哪开始', undefined, [
-      ...options.map((item) => ({ text: item.label, onPress: () => setSource(item.id) })),
-      { text: '取消', style: 'cancel' as const },
-    ]);
-  }
-
-  function chooseModel() {
-    const options = [{ id: '', label: '默认模型' }, ...(models.data?.items ?? []).map((item) => ({
-      id: item.id,
-      label: item.displayName || item.id,
-    }))].slice(0, 8);
-    if (Platform.OS === 'ios') {
-      ActionSheetIOS.showActionSheetWithOptions(
-        { options: [...options.map((item) => item.label), '取消'], cancelButtonIndex: options.length },
-        (index) => {
-          if (index < options.length) setModelId(options[index]!.id);
-        },
-      );
-      return;
-    }
-    Alert.alert('选择模型', undefined, [
-      ...options.map((item) => ({ text: item.label, onPress: () => setModelId(item.id) })),
-      { text: '取消', style: 'cancel' as const },
-    ]);
-  }
 
   async function onSubmit() {
     setError(null);
@@ -202,7 +174,7 @@ export default function AgentsHomeScreen() {
                 onSubmit={() => void onSubmit()}
                 submitting={create.isPending}
                 modelLabel={modelLabel}
-                onModelPress={chooseModel}
+                onModelPress={() => setPicker('model')}
                 onAttach={() => {
                   void pickImages(images.length)
                     .then((next) => setImages((current) => [...current, ...next]))
@@ -211,7 +183,7 @@ export default function AgentsHomeScreen() {
                 attachLabel={images.length ? images.map((item) => item.fileName).join(' · ') : undefined}
               >
                 <View style={styles.sourceRow}>
-                  <Pressable onPress={chooseSource} style={styles.sourceChip}>
+                  <Pressable accessibilityRole="button" onPress={() => setPicker('source')} style={styles.sourceChip}>
                     <Text style={styles.sourceText}>{sourceLabel} ▾</Text>
                   </Pressable>
                 </View>
@@ -288,6 +260,25 @@ export default function AgentsHomeScreen() {
           }
         />
       </View>
+      <ActionSheet
+        visible={picker === 'model'}
+        title="选择模型"
+        message="只在新建任务时生效。追问会沿用这条任务的模型。"
+        items={modelOptions}
+        onClose={() => setPicker(null)}
+        onSelect={setModelId}
+      />
+      <ActionSheet
+        visible={picker === 'source'}
+        title="任务从哪开始"
+        items={[
+          { id: 'none', label: '从零开始', hint: '不绑仓库' },
+          { id: 'repo', label: '指定仓库', hint: '在这个 Git 仓库里改' },
+          { id: 'env', label: '云端环境', hint: '用已有 Cloud 环境' },
+        ]}
+        onClose={() => setPicker(null)}
+        onSelect={(id) => setSource(id as SourceMode)}
+      />
     </KeyboardAvoidingView>
   );
 }

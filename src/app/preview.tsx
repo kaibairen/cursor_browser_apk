@@ -5,6 +5,7 @@ import { colors, spacing } from '../theme';
 import { ChatText } from '../ui/chatText';
 import { Composer } from '../ui/composer';
 import { AvatarButton, Segmented } from '../ui/primitives';
+import { ActionSheet } from '../ui/sheet';
 
 const DEMO_ROWS = [
   { title: '记忆系统对齐分析', meta: 'neo-cloud-agent', time: '18m', done: true },
@@ -12,22 +13,49 @@ const DEMO_ROWS = [
   { title: 'Cursor 网页集成可行性', meta: 'cursor_browser_apk', time: '7h', done: false },
 ];
 
+const DEMO_MARKDOWN = `## 3. 基于什么指标，对应什么情况
+
+| 指标 | 它在回答什么 | 看到什么，对应什么情况 |
+| --- | --- | --- |
+| 答对率 Accuracy | 最终字母对不对 | 高：卷面分好。低：可能不会做。 |
+| 会算 Number-match | 中间有没有算出正确那个数 | 高：题会做。低：知识/演算不够。 |
+| 错配 Mismatch | 中间已指向某选项，字母却另选 | 这是主指标。 |
+
+几种常见组合：
+
+| 会算 | 答对 | 错配 | 人话 |
+| --- | --- | --- | --- |
+| 低 | 低 | 低 | 根本不会做 |
+| 高 | 高 | 低 | 会算也会选 |
+| 高 | 低 | 高 | 算到了，收尾选飞 |
+
+> 能判断出「收尾会慌」，也能把慌按回去、把数算得更多。
+
+- **保留** 现有的检索入口
+- 删掉 \`conversation_search\`
+`;
+
 export default function PreviewScreen() {
   const insets = useSafeAreaInsets();
   const [page, setPage] = useState<'home' | 'detail'>('home');
   const [tab, setTab] = useState('chat');
   const [homeText, setHomeText] = useState('');
   const [follow, setFollow] = useState('');
+  const [model, setModel] = useState('默认模型');
+  const [picker, setPicker] = useState(false);
+  const [more, setMore] = useState(false);
 
   if (page === 'detail') {
     return (
       <View style={[styles.flex, { paddingTop: insets.top + 4 }]}>
         <View style={styles.header}>
-          <Pressable onPress={() => setPage('home')} hitSlop={12}>
+          <Pressable accessibilityRole="button" onPress={() => setPage('home')} hitSlop={12}>
             <Text style={styles.back}>‹</Text>
           </Pressable>
           <Text style={styles.title}>记忆系统对齐分析</Text>
-          <Text style={styles.more}>•••</Text>
+          <Pressable accessibilityRole="button" onPress={() => setMore(true)} hitSlop={12}>
+            <Text style={styles.more}>•••</Text>
+          </Pressable>
         </View>
         <View style={styles.tabs}>
           <Segmented
@@ -41,13 +69,15 @@ export default function PreviewScreen() {
         </View>
         <ScrollView contentContainerStyle={styles.chat}>
           {tab === 'chat' ? (
-            <ChatText text={'修订稿建议\n\n- **保留** 现有的检索入口\n- 删掉 `conversation_search`\n- 改写成以 `MEMORY.md` 为准'} />
+            <ChatText text={DEMO_MARKDOWN} />
           ) : (
             <View style={{ gap: 12 }}>
               <Text style={styles.diffTitle}>Pull request</Text>
               <Text style={styles.link}>github.com/org/repo/pull/12</Text>
-              <Text style={styles.diffTitle}>MEMORY.md</Text>
-              <Text style={styles.meta}>4.2 KB</Text>
+              <Text style={styles.meta}>会打开系统浏览器看 GitHub</Text>
+              <Text style={styles.diffTitle}>numerical_analysis.md</Text>
+              <Text style={styles.meta}>应用内 UTF-8 打开，不再跳浏览器</Text>
+              <ChatText text={DEMO_MARKDOWN} />
             </View>
           )}
         </ScrollView>
@@ -57,9 +87,22 @@ export default function PreviewScreen() {
             onChangeText={setFollow}
             placeholder="Add a follow up"
             onSubmit={() => setFollow('')}
-            modelLabel="默认模型"
+            modelLabel="沿用此任务模型"
           />
         </View>
+        <ActionSheet
+          visible={more}
+          title="记忆系统对齐分析"
+          items={[
+            { id: 'web', label: '在浏览器打开', hint: '打开网页上的同一条任务' },
+            { id: 'stop', label: '停止这一轮', hint: '取消当前正在写的回复' },
+            { id: 'archive', label: '归档', hint: '从列表里收起来' },
+            { id: 'usage', label: '用量', hint: '看这轮花了多少' },
+            { id: 'delete', label: '删除', hint: '删掉后不能恢复', destructive: true },
+          ]}
+          onClose={() => setMore(false)}
+          onSelect={() => undefined}
+        />
       </View>
     );
   }
@@ -71,13 +114,14 @@ export default function PreviewScreen() {
         <Text style={styles.brand}>Agents</Text>
         <AvatarButton label="思亦" onPress={() => undefined} />
       </View>
-      <ScrollView contentContainerStyle={styles.list}>
+      <ScrollView contentContainerStyle={styles.list} keyboardShouldPersistTaps="handled">
         <Composer
           value={homeText}
           onChangeText={setHomeText}
           placeholder="让 Agent 构建、修 bug、探索…"
           onSubmit={() => setPage('detail')}
-          modelLabel="默认模型"
+          modelLabel={model}
+          onModelPress={() => setPicker(true)}
         >
           <View style={styles.sourceChip}>
             <Text style={styles.sourceText}>从零开始 ▾</Text>
@@ -95,6 +139,18 @@ export default function PreviewScreen() {
           </Pressable>
         ))}
       </ScrollView>
+      <ActionSheet
+        visible={picker}
+        title="选择模型"
+        message="只在新建任务时生效。"
+        items={[
+          { id: '默认模型', label: '默认模型' },
+          { id: 'Composer', label: 'Composer' },
+          { id: 'Auto', label: 'Auto' },
+        ]}
+        onClose={() => setPicker(false)}
+        onSelect={setModel}
+      />
     </View>
   );
 }
