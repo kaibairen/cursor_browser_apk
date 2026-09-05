@@ -23,10 +23,10 @@ function AuthGate({ children }: { children: ReactNode }) {
   const segments = useSegments();
   const router = useRouter();
   const root = segments[0];
-  const onSetup = root === 'setup';
-  const onProtected = root === '(tabs)' || root === 'agent';
+    const onSetup = root === 'setup';
+    const onProtected = root === '(tabs)' || root === 'agent' || root === 'settings';
 
-  useEffect(() => {
+    useEffect(() => {
     if (!ready) {
       return;
     }
@@ -56,19 +56,18 @@ export default function RootLayout() {
       <QueryClientProvider client={client}>
         <AuthProvider>
           <AuthGate>
-            <StatusBar style="light" />
+            <StatusBar style="dark" />
             <Stack
               screenOptions={{
-                headerStyle: { backgroundColor: colors.bg },
-                headerTintColor: colors.text,
-                headerTitleStyle: { color: colors.text },
+                headerShown: false,
                 contentStyle: { backgroundColor: colors.bg },
               }}
             >
-              <Stack.Screen name="index" options={{ headerShown: false }} />
-              <Stack.Screen name="setup" options={{ title: '连接账号' }} />
-              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-              <Stack.Screen name="agent/[id]" options={{ title: '任务详情' }} />
+              <Stack.Screen name="index" />
+              <Stack.Screen name="setup" />
+              <Stack.Screen name="(tabs)" />
+              <Stack.Screen name="settings" />
+              <Stack.Screen name="agent/[id]" />
             </Stack>
           </AuthGate>
         </AuthProvider>

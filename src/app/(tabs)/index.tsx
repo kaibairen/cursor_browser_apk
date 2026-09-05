@@ -1,130 +1,359 @@
 import { useIsFocused, useRouter } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
+  ActionSheetIOS,
   ActivityIndicator,
-  FlatList,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   RefreshControl,
+  SectionList,
   StyleSheet,
-  Switch,
   Text,
+  TextInput,
   View,
 } from 'react-native';
-import { useAgentList } from '../../features/agents/queries';
-import { agentStatusLabel, agentStatusTone } from '../../features/agents/labels';
-import { formatTime } from '../../lib/format';
-import type { AgentListItem } from '../../lib/cursor/types';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { agentSubtitle, agentTitle, initials, statusGlyph } from '../../features/agents/display';
+import { pickImages, toPromptImages, type PickedImage } from '../../features/agents/images';
+import { useAgentList, useCreateAgent, useModels, useRepositories } from '../../features/agents/queries';
+import { useAuth } from '../../features/auth/AuthContext';
+import type { AgentListItem, ConversationMode, CreateAgentRequest } from '../../lib/cursor/types';
+import { dateGroup, dateGroupLabel, formatRelative, type DateGroup } from '../../lib/format';
+import { usePrefs } from '../../storage/usePrefs';
 import { colors, spacing } from '../../theme';
-import { Badge } from '../../ui/primitives';
+import { Composer } from '../../ui/composer';
+import { AvatarButton } from '../../ui/primitives';
 
-export default function InboxScreen() {
+type SourceMode = 'none' | 'repo' | 'env';
+
+const GROUP_ORDER: DateGroup[] = ['today', 'yesterday', 'week', 'older'];
+
+export default function AgentsHomeScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const focused = useIsFocused();
-  const [includeArchived, setIncludeArchived] = useState(true);
-  const list = useAgentList({ includeArchived, enabled: focused });
-  const items = useMemo(
-    () => list.data?.pages.flatMap((page) => page.items) ?? [],
-    [list.data],
+  const { me } = useAuth();
+  const { prefs } = usePrefs();
+  const models = useModels();
+  const repos = useRepositories();
+  const create = useCreateAgent();
+  const list = useAgentList({ includeArchived: false, enabled: focused });
+  const items = useMemo(() => list.data?.pages.flatMap((page) => page.items) ?? [], [list.data]);
+
+  const [query, setQuery] = useState('');
+  const [text, setText] = useState('');
+  const [source, setSource] = useState<SourceMode>('none');
+  const [repoUrl, setRepoUrl] = useState('');
+  const [envName, setEnvName] = useState('');
+  const [modelId, setModelId] = useState('');
+  const [images, setImages] = useState<PickedImage[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [hydrated, setHydrated] = useState(false);
+
+  useEffect(() => {
+    if (!prefs || hydrated) return;
+    setRepoUrl(prefs.recentRepos[0] ?? '');
+    setEnvName(prefs.defaultEnvName ?? '');
+    setModelId(prefs.defaultModelId ?? '');
+    setSource(prefs.recentRepos[0] ? 'repo' : prefs.defaultEnvName ? 'env' : 'none');
+    setHydrated(true);
+  }, [prefs, hydrated]);
+
+  const modelLabel = useMemo(() => {
+    if (!modelId) return '默认模型';
+    const match = models.data?.items.find((item) => item.id === modelId);
+    return match?.displayName || modelId;
+  }, [modelId, models.data]);
+
+  const suggestions = useMemo(() => {
+    const recent = prefs?.recentRepos ?? [];
+    const cached = (repos.data?.items ?? prefs?.cachedRepos ?? []).map((item) => item.url);
+    return [...recent, ...cached.filter((url) => !recent.includes(url))].slice(0, 6);
+  }, [prefs, repos.data]);
+
+  const sections = useMemo(() => {
+    const filtered = query.trim()
+      ? items.filter((item) => agentTitle(item).toLowerCase().includes(query.trim().toLowerCase()))
+      : items;
+    const buckets = new Map<DateGroup, AgentListItem[]>();
+    for (const item of filtered) {
+      const group = dateGroup(item.updatedAt);
+      const current = buckets.get(group) ?? [];
+      current.push(item);
+      buckets.set(group, current);
+    }
+    return GROUP_ORDER.filter((group) => (buckets.get(group) ?? []).length > 0).map((group) => ({
+      title: dateGroupLabel(group),
+      data: buckets.get(group) ?? [],
+    }));
+  }, [items, query]);
+
+  function chooseSource() {
+    const options: { id: SourceMode; label: string }[] = [
+      { id: 'none', label: '从零开始' },
+      { id: 'repo', label: '指定仓库' },
+      { id: 'env', label: '云端环境' },
+    ];
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        { options: [...options.map((item) => item.label), '取消'], cancelButtonIndex: options.length },
+        (index) => {
+          if (index < options.length) setSource(options[index]!.id);
+        },
+      );
+      return;
+    }
+    Alert.alert('任务从哪开始', undefined, [
+      ...options.map((item) => ({ text: item.label, onPress: () => setSource(item.id) })),
+      { text: '取消', style: 'cancel' as const },
+    ]);
+  }
+
+  function chooseModel() {
+    const options = [{ id: '', label: '默认模型' }, ...(models.data?.items ?? []).map((item) => ({
+      id: item.id,
+      label: item.displayName || item.id,
+    }))].slice(0, 8);
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        { options: [...options.map((item) => item.label), '取消'], cancelButtonIndex: options.length },
+        (index) => {
+          if (index < options.length) setModelId(options[index]!.id);
+        },
+      );
+      return;
+    }
+    Alert.alert('选择模型', undefined, [
+      ...options.map((item) => ({ text: item.label, onPress: () => setModelId(item.id) })),
+      { text: '取消', style: 'cancel' as const },
+    ]);
+  }
+
+  async function onSubmit() {
+    setError(null);
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    const body: Omit<CreateAgentRequest, 'agentId'> = {
+      prompt: {
+        text: trimmed,
+        images: images.length ? await toPromptImages(images) : undefined,
+      },
+      autoCreatePR: source === 'repo' ? (prefs?.defaultAutoCreatePR ?? true) : undefined,
+      mode: (prefs?.defaultMode ?? 'agent') as ConversationMode,
+      model: modelId ? { id: modelId } : undefined,
+    };
+    if (source === 'repo') {
+      if (!repoUrl.trim()) {
+        setError('先选一个仓库，或改成从零开始');
+        return;
+      }
+      body.repos = [{ url: repoUrl.trim(), startingRef: prefs?.defaultBranch || 'main' }];
+    } else if (source === 'env') {
+      if (!envName.trim()) {
+        setError('填写环境名，或改成从零开始');
+        return;
+      }
+      body.env = { type: 'cloud', name: envName.trim() };
+    }
+    try {
+      const result = await create.mutateAsync(body);
+      setText('');
+      setImages([]);
+      router.push(`/agent/${result.agent.id}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '发送失败');
+    }
+  }
+
+  const sourceLabel = source === 'repo' ? '指定仓库' : source === 'env' ? '云端环境' : '从零开始';
+  const avatar = initials(
+    [me?.userFirstName, me?.userLastName].filter(Boolean).join('') || me?.apiKeyName,
+    me?.userEmail,
   );
 
   return (
-    <View style={styles.screen}>
-      <View style={styles.filterRow}>
-        <Text style={styles.filterLabel}>显示已归档</Text>
-        <Switch
-          value={includeArchived}
-          onValueChange={setIncludeArchived}
-          trackColor={{ true: colors.accentMuted, false: colors.border }}
-          thumbColor={includeArchived ? colors.accent : colors.muted}
+    <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <View style={[styles.flex, { paddingTop: insets.top + 8 }]}>
+        <View style={styles.topBar}>
+          <Text style={styles.brand}>Agents</Text>
+          <AvatarButton label={avatar} onPress={() => router.push('/settings')} />
+        </View>
+
+        <SectionList
+          sections={sections}
+          keyExtractor={(item) => item.id}
+          stickySectionHeadersEnabled={false}
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={styles.list}
+          refreshControl={
+            <RefreshControl refreshing={list.isRefetching && !list.isFetchingNextPage} onRefresh={() => void list.refetch()} />
+          }
+          onEndReached={() => {
+            if (list.hasNextPage && !list.isFetchingNextPage) void list.fetchNextPage();
+          }}
+          ListHeaderComponent={
+            <View style={styles.headerBlock}>
+              <Composer
+                value={text}
+                onChangeText={setText}
+                placeholder="让 Agent 构建、修 bug、探索…"
+                onSubmit={() => void onSubmit()}
+                submitting={create.isPending}
+                modelLabel={modelLabel}
+                onModelPress={chooseModel}
+                onAttach={() => {
+                  void pickImages(images.length)
+                    .then((next) => setImages((current) => [...current, ...next]))
+                    .catch((err: unknown) => setError(err instanceof Error ? err.message : '无法选择图片'));
+                }}
+                attachLabel={images.length ? images.map((item) => item.fileName).join(' · ') : undefined}
+              >
+                <View style={styles.sourceRow}>
+                  <Pressable onPress={chooseSource} style={styles.sourceChip}>
+                    <Text style={styles.sourceText}>{sourceLabel} ▾</Text>
+                  </Pressable>
+                </View>
+                {source === 'repo' ? (
+                  <View style={styles.extra}>
+                    <TextInput
+                      value={repoUrl}
+                      onChangeText={setRepoUrl}
+                      placeholder="github.com/org/repo"
+                      placeholderTextColor={colors.muted}
+                      autoCapitalize="none"
+                      style={styles.extraInput}
+                    />
+                    <View style={styles.chips}>
+                      {suggestions.map((url) => (
+                        <Pressable key={url} onPress={() => setRepoUrl(url)} style={styles.miniChip}>
+                          <Text style={styles.miniChipText}>{url.replace('https://github.com/', '')}</Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  </View>
+                ) : null}
+                {source === 'env' ? (
+                  <TextInput
+                    value={envName}
+                    onChangeText={setEnvName}
+                    placeholder="环境名"
+                    placeholderTextColor={colors.muted}
+                    autoCapitalize="none"
+                    style={styles.extraInput}
+                  />
+                ) : null}
+              </Composer>
+              {error ? <Text style={styles.error}>{error}</Text> : null}
+              <View style={styles.sectionHead}>
+                <Text style={styles.sectionTitle}>{sections[0]?.title ?? '最近'}</Text>
+                <TextInput
+                  value={query}
+                  onChangeText={setQuery}
+                  placeholder="搜索"
+                  placeholderTextColor={colors.muted}
+                  style={styles.search}
+                />
+              </View>
+            </View>
+          }
+          renderSectionHeader={({ section }) =>
+            section.title === sections[0]?.title ? null : <Text style={styles.groupTitle}>{section.title}</Text>
+          }
+          renderItem={({ item }) => (
+            <Pressable style={styles.row} onPress={() => router.push(`/agent/${item.id}`)}>
+              <Text style={[styles.glyph, item.status === 'ACTIVE' && styles.live]}>{statusGlyph(item.status)}</Text>
+              <View style={styles.rowBody}>
+                <Text style={styles.rowTitle} numberOfLines={1}>
+                  {agentTitle(item)}
+                </Text>
+                <Text style={styles.rowMeta} numberOfLines={1}>
+                  {agentSubtitle(item)}
+                </Text>
+              </View>
+              {item.status === 'ACTIVE' ? <View style={styles.dot} /> : null}
+              <Text style={styles.time}>{formatRelative(item.updatedAt)}</Text>
+            </Pressable>
+          )}
+          ListEmptyComponent={
+            list.isLoading ? (
+              <ActivityIndicator color={colors.muted} style={{ marginTop: 24 }} />
+            ) : (
+              <Text style={styles.empty}>还没有任务。在上面说一句就开始。</Text>
+            )
+          }
+          ListFooterComponent={
+            list.isFetchingNextPage ? <ActivityIndicator color={colors.muted} style={{ marginVertical: 16 }} /> : null
+          }
         />
       </View>
-      {list.isError ? (
-        <Text style={styles.error}>{list.error instanceof Error ? list.error.message : '加载失败'}</Text>
-      ) : null}
-      <FlatList
-        data={items}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={items.length === 0 ? styles.emptyContainer : styles.list}
-        refreshControl={
-          <RefreshControl
-            refreshing={list.isRefetching && !list.isFetchingNextPage}
-            onRefresh={() => {
-              void list.refetch();
-            }}
-            tintColor={colors.accent}
-          />
-        }
-        onEndReached={() => {
-          if (list.hasNextPage && !list.isFetchingNextPage) {
-            void list.fetchNextPage();
-          }
-        }}
-        onEndReachedThreshold={0.4}
-        ListEmptyComponent={
-          list.isLoading ? (
-            <ActivityIndicator color={colors.accent} />
-          ) : (
-            <Text style={styles.empty}>还没有云端任务。到「新建」发一条，或先在桌面把本地 Agent 移到 Cloud。</Text>
-          )
-        }
-        ListFooterComponent={
-          list.isFetchingNextPage ? <ActivityIndicator color={colors.accent} style={{ marginVertical: 16 }} /> : null
-        }
-        renderItem={({ item }) => (
-          <AgentRow
-            item={item}
-            onPress={() => {
-              router.push(`/agent/${item.id}`);
-            }}
-          />
-        )}
-      />
-    </View>
-  );
-}
-
-function AgentRow({ item, onPress }: { item: AgentListItem; onPress: () => void }) {
-  return (
-    <Pressable onPress={onPress} style={styles.card}>
-      <View style={styles.cardHeader}>
-        <Text style={styles.name} numberOfLines={2}>
-          {item.name || item.id}
-        </Text>
-        <Badge label={agentStatusLabel(item.status)} tone={agentStatusTone(item.status)} />
-      </View>
-      <Text style={styles.meta} numberOfLines={1}>
-        {item.env?.name ? `${item.env.type} · ${item.env.name}` : item.env?.type ?? 'cloud'}
-      </Text>
-      <Text style={styles.meta}>{formatTime(item.updatedAt)}</Text>
-    </Pressable>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.bg },
-  filterRow: {
+  flex: { flex: 1, backgroundColor: colors.bg },
+  topBar: {
+    paddingHorizontal: spacing.md,
+    paddingBottom: spacing.sm,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderBottomColor: colors.border,
-    borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  filterLabel: { color: colors.muted, fontSize: 14 },
-  list: { padding: spacing.md, gap: spacing.sm },
-  emptyContainer: { flexGrow: 1, padding: spacing.lg, justifyContent: 'center' },
-  empty: { color: colors.muted, textAlign: 'center', lineHeight: 22, fontSize: 15 },
-  error: { color: colors.danger, paddingHorizontal: spacing.md, paddingTop: spacing.sm },
-  card: {
-    backgroundColor: colors.card,
-    borderColor: colors.border,
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: spacing.md,
-    gap: 6,
+  brand: { color: colors.text, fontSize: 18, fontWeight: '600' },
+  list: { paddingHorizontal: spacing.md, paddingBottom: 40 },
+  headerBlock: { gap: 12, paddingBottom: 8 },
+  sourceRow: { flexDirection: 'row' },
+  sourceChip: {
+    backgroundColor: colors.chip,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
   },
-  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', gap: spacing.sm, alignItems: 'flex-start' },
-  name: { color: colors.text, fontSize: 16, fontWeight: '600', flex: 1 },
-  meta: { color: colors.muted, fontSize: 12 },
+  sourceText: { color: colors.text, fontSize: 13, fontWeight: '500' },
+  extra: { gap: 8 },
+  extraInput: {
+    color: colors.text,
+    fontSize: 14,
+    paddingVertical: 4,
+  },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  miniChip: {
+    backgroundColor: colors.chip,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  miniChipText: { color: colors.muted, fontSize: 12 },
+  error: { color: colors.danger, fontSize: 13 },
+  sectionHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 },
+  sectionTitle: { color: colors.muted, fontSize: 14, fontWeight: '600' },
+  search: {
+    minWidth: 88,
+    textAlign: 'right',
+    color: colors.text,
+    fontSize: 14,
+  },
+  groupTitle: {
+    color: colors.muted,
+    fontSize: 14,
+    fontWeight: '600',
+    marginTop: 18,
+    marginBottom: 4,
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 12,
+  },
+  glyph: { width: 18, textAlign: 'center', color: colors.muted, fontSize: 14 },
+  live: { color: colors.live },
+  rowBody: { flex: 1, gap: 2 },
+  rowTitle: { color: colors.text, fontSize: 16, fontWeight: '600' },
+  rowMeta: { color: colors.muted, fontSize: 13 },
+  time: { color: colors.muted, fontSize: 13 },
+  dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: colors.live },
+  empty: { color: colors.muted, textAlign: 'center', marginTop: 28, lineHeight: 22 },
 });

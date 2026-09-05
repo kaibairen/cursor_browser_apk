@@ -9,7 +9,7 @@ export default function NotFoundScreen() {
       <View style={styles.container}>
         <Text style={styles.title}>没有这个页面</Text>
         <Link href="/(tabs)" style={styles.link}>
-          回到收件箱
+          回到 Agents
         </Link>
       </View>
     </>

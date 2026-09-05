@@ -25,22 +25,13 @@ export default function SetupScreen() {
   return (
     <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <Text style={styles.title}>Agents Console</Text>
-        <Text style={styles.body}>
-          这是官方 Cloud Agents API 的个人控制台，和 cursor.com/agents、桌面 Cloud 面板共用同一账号。密钥只保存在本机，不会上传到本应用服务器。
-        </Text>
-        <Text style={styles.body}>
-          在 Dashboard → Integrations → User API Keys 创建密钥后粘贴到这里。不要把密钥写进仓库或聊天。
-        </Text>
-        <Field
-          label="User API Key"
-          value={key}
-          onChangeText={setKey}
-          placeholder="key_..."
-          secureTextEntry
-        />
+        <Text style={styles.kicker}>Agents</Text>
+        <Text style={styles.title}>用同一批云端任务</Text>
+        <Text style={styles.body}>粘贴 User API Key。只存在这台手机上，和网页、桌面 Cloud 是同一个账号。</Text>
+        <Field value={key} onChangeText={setKey} placeholder="粘贴 API Key" secureTextEntry />
         {error ? <Text style={styles.error}>{error}</Text> : null}
-        <Button title="验证并进入" onPress={onSubmit} loading={busy} disabled={!key.trim()} />
+        <Button title="进入" onPress={() => void onSubmit()} loading={busy} disabled={!key.trim()} />
+        <Text style={styles.hint}>Dashboard → Integrations → User API Keys</Text>
         <View style={{ height: spacing.xl }} />
       </ScrollView>
     </KeyboardAvoidingView>
@@ -52,19 +43,11 @@ const styles = StyleSheet.create({
   content: {
     padding: spacing.lg,
     gap: spacing.md,
+    paddingTop: 72,
   },
-  title: {
-    color: colors.text,
-    fontSize: 28,
-    fontWeight: '700',
-  },
-  body: {
-    color: colors.muted,
-    fontSize: 15,
-    lineHeight: 22,
-  },
-  error: {
-    color: colors.danger,
-    fontSize: 14,
-  },
+  kicker: { color: colors.muted, fontSize: 14, fontWeight: '600' },
+  title: { color: colors.text, fontSize: 28, fontWeight: '700' },
+  body: { color: colors.muted, fontSize: 16, lineHeight: 24 },
+  hint: { color: colors.muted, fontSize: 13 },
+  error: { color: colors.danger, fontSize: 14 },
 });

@@ -11,7 +11,7 @@ type ButtonProps = {
 
 export function Button({ title, onPress, disabled, loading, variant = 'primary' }: ButtonProps) {
   const bg =
-    variant === 'danger' ? colors.danger : variant === 'ghost' ? colors.surface : colors.accent;
+    variant === 'danger' ? colors.danger : variant === 'ghost' ? colors.chip : colors.accent;
   const fg = variant === 'ghost' ? colors.text : '#fff';
 
   return (
@@ -26,7 +26,7 @@ export function Button({ title, onPress, disabled, loading, variant = 'primary' 
 }
 
 type FieldProps = {
-  label: string;
+  label?: string;
   value: string;
   onChangeText: (value: string) => void;
   placeholder?: string;
@@ -46,7 +46,7 @@ export function Field({
 }: FieldProps) {
   return (
     <View style={styles.field}>
-      <Text style={styles.label}>{label}</Text>
+      {label ? <Text style={styles.label}>{label}</Text> : null}
       <TextInput
         value={value}
         onChangeText={onChangeText}
@@ -62,23 +62,44 @@ export function Field({
   );
 }
 
-export function Badge({ label, tone = 'idle' }: { label: string; tone?: 'active' | 'idle' | 'error' | 'done' }) {
-  const map = {
-    active: colors.accent,
-    idle: colors.muted,
-    error: colors.danger,
-    done: colors.success,
-  } as const;
+export function AvatarButton({ label, onPress }: { label: string; onPress: () => void }) {
   return (
-    <View style={[styles.badge, { borderColor: map[tone] }]}>
-      <Text style={[styles.badgeText, { color: map[tone] }]}>{label}</Text>
+    <Pressable onPress={onPress} style={styles.avatar}>
+      <Text style={styles.avatarText}>{label}</Text>
+    </Pressable>
+  );
+}
+
+export function Segmented({
+  options,
+  value,
+  onChange,
+}: {
+  options: { id: string; label: string }[];
+  value: string;
+  onChange: (id: string) => void;
+}) {
+  return (
+    <View style={styles.segmented}>
+      {options.map((option) => {
+        const active = option.id === value;
+        return (
+          <Pressable
+            key={option.id}
+            onPress={() => onChange(option.id)}
+            style={[styles.segment, active && styles.segmentActive]}
+          >
+            <Text style={[styles.segmentText, active && styles.segmentTextActive]}>{option.label}</Text>
+          </Pressable>
+        );
+      })}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   button: {
-    minHeight: 48,
+    minHeight: 44,
     borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
@@ -96,7 +117,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
   input: {
-    backgroundColor: colors.surface,
+    backgroundColor: colors.card,
     borderColor: colors.border,
     borderWidth: 1,
     borderRadius: radius.md,
@@ -106,17 +127,34 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   multiline: {
-    minHeight: 120,
+    minHeight: 96,
     textAlignVertical: 'top',
   },
-  badge: {
-    borderWidth: 1,
+  avatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#1f3d32',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarText: { color: '#fff', fontSize: 12, fontWeight: '700' },
+  segmented: {
+    flexDirection: 'row',
+    alignSelf: 'flex-start',
+    backgroundColor: colors.chip,
     borderRadius: 999,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
+    padding: 3,
+    gap: 2,
   },
-  badgeText: {
-    fontSize: 11,
-    fontWeight: '600',
+  segment: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 999,
   },
+  segmentActive: {
+    backgroundColor: colors.card,
+  },
+  segmentText: { color: colors.muted, fontSize: 14, fontWeight: '600' },
+  segmentTextActive: { color: colors.text },
 });

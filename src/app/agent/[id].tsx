@@ -1,6 +1,7 @@
-import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useMemo, useState } from 'react';
 import {
+  ActionSheetIOS,
   Alert,
   KeyboardAvoidingView,
   Platform,
@@ -10,8 +11,9 @@ import {
   Text,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { fileName, toolLabel } from '../../features/agents/display';
 import { pickImages, toPromptImages, type PickedImage } from '../../features/agents/images';
-import { agentStatusLabel, agentStatusTone, runStatusLabel, runStatusTone } from '../../features/agents/labels';
 import {
   isBusyError,
   useAgent,
@@ -21,21 +23,24 @@ import {
   useCreateFollowUp,
   useDeleteAgent,
   useDownloadArtifact,
+  useModels,
   useRun,
   useUsage,
 } from '../../features/agents/queries';
 import { useRunStream } from '../../features/agents/useRunStream';
 import { isTerminalRun } from '../../lib/cursor/types';
-import { formatBytes, formatDuration, formatTime } from '../../lib/format';
+import { formatBytes } from '../../lib/format';
 import { colors, spacing } from '../../theme';
+import { ChatText } from '../../ui/chatText';
+import { Composer } from '../../ui/composer';
 import { githubHttpsUrl, openExternal } from '../../ui/openUrl';
-import { Badge, Button, Field } from '../../ui/primitives';
+import { Segmented } from '../../ui/primitives';
 
 export default function AgentDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const agentId = Array.isArray(id) ? id[0] : id;
   const router = useRouter();
-  const navigation = useNavigation();
+  const insets = useSafeAreaInsets();
 
   const agentQuery = useAgent(agentId);
   const agent = agentQuery.data;
@@ -44,7 +49,7 @@ export default function AgentDetailScreen() {
   const run = runQuery.data;
   const live = Boolean(run && !isTerminalRun(run.status));
   const stream = useRunStream(agentId, latestRunId, run?.status);
-
+  const models = useModels();
   const followUp = useCreateFollowUp(agentId);
   const cancel = useCancelRun(agentId);
   const archive = useArchiveAgent(agentId);
@@ -53,16 +58,16 @@ export default function AgentDetailScreen() {
   const artifacts = useArtifacts(agentId);
   const download = useDownloadArtifact(agentId);
 
+  const [tab, setTab] = useState<'chat' | 'diff'>('chat');
   const [prompt, setPrompt] = useState('');
   const [images, setImages] = useState<PickedImage[]>([]);
   const [error, setError] = useState<string | null>(null);
   const busy = agent?.status === 'ACTIVE' || live || followUp.isPending || isBusyError(followUp.error);
 
-  useEffect(() => {
-    if (agent?.name) {
-      navigation.setOptions({ title: agent.name });
-    }
-  }, [agent?.name, navigation]);
+  const modelLabel = useMemo(() => {
+    const first = models.data?.items[0];
+    return first?.displayName || '默认模型';
+  }, [models.data]);
 
   async function onFollowUp() {
     setError(null);
@@ -70,36 +75,86 @@ export default function AgentDetailScreen() {
     if (!text) return;
     try {
       await followUp.mutateAsync({
-        prompt: {
-          text,
-          images: images.length ? await toPromptImages(images) : undefined,
-        },
+        prompt: { text, images: images.length ? await toPromptImages(images) : undefined },
       });
       setPrompt('');
       setImages([]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : '追问失败');
+      setError(err instanceof Error ? err.message : '发送失败');
     }
   }
 
-  function confirmDelete() {
-    Alert.alert('删除任务', '将永久删除这条 Cloud Agent，无法恢复。', [
-      { text: '取消', style: 'cancel' },
+  function openMore() {
+    const actions = [
+      { label: '在浏览器打开', run: () => void openExternal(agent!.url) },
+      live && latestRunId
+        ? {
+            label: '停止这一轮',
+            run: () =>
+              void cancel.mutateAsync(latestRunId).catch((err: unknown) => {
+                setError(err instanceof Error ? err.message : '无法停止');
+              }),
+          }
+        : null,
       {
-        text: '删除',
-        style: 'destructive',
-        onPress: () => {
-          void remove.mutateAsync(agentId).then(() => {
-            router.replace('/(tabs)');
-          });
+        label: agent?.status === 'ARCHIVED' ? '取消归档' : '归档',
+        run: () => void archive.mutateAsync(agent?.status === 'ARCHIVED'),
+      },
+      {
+        label: usage.data
+          ? `用量 ${usage.data.totalUsage.totalTokens.toLocaleString()} tokens`
+          : '查看用量',
+        run: () => {
+          if (!usage.data) return;
+          Alert.alert(
+            '用量',
+            `一共 ${usage.data.totalUsage.totalTokens.toLocaleString()} tokens\n输入 ${usage.data.totalUsage.inputTokens.toLocaleString()} · 输出 ${usage.data.totalUsage.outputTokens.toLocaleString()}`,
+          );
         },
       },
+      {
+        label: '删除',
+        destructive: true,
+        run: () => {
+          Alert.alert('删除任务', '删除后不能恢复。', [
+            { text: '取消', style: 'cancel' },
+            {
+              text: '删除',
+              style: 'destructive',
+              onPress: () => {
+                void remove.mutateAsync(agentId).then(() => router.replace('/(tabs)'));
+              },
+            },
+          ]);
+        },
+      },
+    ].filter(Boolean) as { label: string; run: () => void; destructive?: boolean }[];
+
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: [...actions.map((item) => item.label), '取消'],
+          cancelButtonIndex: actions.length,
+          destructiveButtonIndex: actions.findIndex((item) => item.destructive),
+        },
+        (index) => {
+          if (index < actions.length) actions[index]?.run();
+        },
+      );
+      return;
+    }
+    Alert.alert(agent?.name ?? '任务', undefined, [
+      ...actions.map((item) => ({ text: item.label, onPress: item.run, style: item.destructive ? 'destructive' as const : undefined })),
+      { text: '取消', style: 'cancel' as const },
     ]);
   }
 
   if (agentQuery.isError) {
     return (
-      <View style={styles.padded}>
+      <View style={[styles.padded, { paddingTop: insets.top + 12 }]}>
+        <Pressable onPress={() => router.back()}>
+          <Text style={styles.back}>‹ 返回</Text>
+        </Pressable>
         <Text style={styles.error}>{agentQuery.error instanceof Error ? agentQuery.error.message : '加载失败'}</Text>
       </View>
     );
@@ -107,179 +162,157 @@ export default function AgentDetailScreen() {
 
   if (!agent) {
     return (
-      <View style={styles.padded}>
-        <Text style={styles.meta}>加载任务…</Text>
+      <View style={[styles.padded, { paddingTop: insets.top + 12 }]}>
+        <Text style={styles.meta}>加载中…</Text>
       </View>
     );
   }
 
+  const chatEmpty = stream.lines.length === 0 && !run?.result;
+
   return (
     <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <View style={styles.row}>
-          <Badge label={agentStatusLabel(agent.status)} tone={agentStatusTone(agent.status)} />
-          {run ? <Badge label={runStatusLabel(run.status)} tone={runStatusTone(run.status)} /> : null}
-        </View>
-        <Text style={styles.id}>{agent.id}</Text>
-        <Text style={styles.meta}>{formatTime(agent.updatedAt)}</Text>
-        {agent.repos?.[0]?.url ? <Text style={styles.meta}>{agent.repos[0].url}</Text> : null}
-        {agent.env?.name ? <Text style={styles.meta}>环境：{agent.env.name}</Text> : null}
-
-        <View style={styles.actions}>
-          <Button title="打开网页版" variant="ghost" onPress={() => void openExternal(agent.url)} />
-          {live && latestRunId ? (
-            <Button
-              title="取消本轮"
-              variant="danger"
-              loading={cancel.isPending}
-              onPress={() => {
-                void cancel.mutateAsync(latestRunId).catch((err: unknown) => {
-                  setError(err instanceof Error ? err.message : '无法取消');
-                });
-              }}
-            />
-          ) : null}
-          <Button
-            title={agent.status === 'ARCHIVED' ? '取消归档' : '归档'}
-            variant="ghost"
-            loading={archive.isPending}
-            onPress={() => {
-              void archive.mutateAsync(agent.status === 'ARCHIVED');
-            }}
-          />
-          <Button title="删除" variant="danger" onPress={confirmDelete} loading={remove.isPending} />
-        </View>
-
-        {run?.git?.branches?.length ? (
-          <View style={styles.block}>
-            <Text style={styles.section}>分支 / PR</Text>
-            {run.git.branches.map((branch) => (
-              <View key={`${branch.repoUrl}-${branch.branch ?? ''}-${branch.prUrl ?? ''}`} style={styles.block}>
-                <Text style={styles.body}>
-                  {branch.repoUrl}
-                  {branch.branch ? ` · ${branch.branch}` : ''}
-                </Text>
-                {branch.prUrl ? (
-                  <Pressable onPress={() => void openExternal(branch.prUrl!)}>
-                    <Text style={styles.link}>打开 PR</Text>
-                  </Pressable>
-                ) : (
-                  <Pressable onPress={() => void openExternal(githubHttpsUrl(branch.repoUrl))}>
-                    <Text style={styles.link}>打开仓库</Text>
-                  </Pressable>
-                )}
-              </View>
-            ))}
-          </View>
-        ) : null}
-
-        {stream.streamError ? <Text style={styles.meta}>{stream.streamError}</Text> : null}
-
-        <Text style={styles.section}>本轮输出</Text>
-        {stream.lines.length === 0 && run?.result ? <Text style={styles.body}>{run.result}</Text> : null}
-        {stream.lines.length === 0 && !run?.result ? (
-          <Text style={styles.meta}>{live ? '等待模型输出…' : '没有可显示的实时内容，终态请看 result。'}</Text>
-        ) : null}
-        {stream.lines.map((line, index) => {
-          if (line.kind === 'tool') {
-            return (
-              <Text key={`${line.callId}-${index}`} style={styles.tool}>
-                {line.name} · {line.status}
-                {line.detail ? ` ${line.detail}` : ''}
-              </Text>
-            );
-          }
-          return (
-            <Text key={`${line.kind}-${index}`} style={line.kind === 'thinking' ? styles.thinking : styles.body}>
-              {line.text}
-            </Text>
-          );
-        })}
-        {run?.durationMs != null ? <Text style={styles.meta}>耗时 {formatDuration(run.durationMs)}</Text> : null}
-
-        <Text style={styles.section}>用量</Text>
-        {usage.data ? (
-          <Text style={styles.meta}>
-            合计 {usage.data.totalUsage.totalTokens} tokens（入 {usage.data.totalUsage.inputTokens} / 出{' '}
-            {usage.data.totalUsage.outputTokens}）
-          </Text>
-        ) : (
-          <Text style={styles.meta}>{usage.isError ? '用量暂不可用' : '加载用量…'}</Text>
-        )}
-
-        <Text style={styles.section}>产物</Text>
-        {(artifacts.data?.items ?? []).map((item) => (
-          <Pressable
-            key={item.path}
-            onPress={() => {
-              void download
-                .mutateAsync(item.path)
-                .then((file) => openExternal(file.url))
-                .catch((err: unknown) => {
-                  setError(err instanceof Error ? err.message : '无法下载产物');
-                });
-            }}
-          >
-            <Text style={styles.link}>
-              {item.path} · {formatBytes(item.sizeBytes)}
-            </Text>
+      <View style={[styles.flex, { paddingTop: insets.top + 4 }]}>
+        <View style={styles.header}>
+          <Pressable onPress={() => router.back()} hitSlop={12}>
+            <Text style={styles.backIcon}>‹</Text>
           </Pressable>
-        ))}
-        {artifacts.data && artifacts.data.items.length === 0 ? <Text style={styles.meta}>没有产物</Text> : null}
+          <Text style={styles.title} numberOfLines={1}>
+            {agent.name || '任务'}
+          </Text>
+          <Pressable onPress={openMore} hitSlop={12}>
+            <Text style={styles.more}>•••</Text>
+          </Pressable>
+        </View>
+        <View style={styles.tabs}>
+          <Segmented
+            value={tab}
+            onChange={(id) => setTab(id as 'chat' | 'diff')}
+            options={[
+              { id: 'chat', label: 'Chat' },
+              { id: 'diff', label: 'Diff' },
+            ]}
+          />
+        </View>
 
-        <Text style={styles.section}>追问</Text>
-        {agent.status === 'ARCHIVED' ? (
-          <Text style={styles.meta}>已归档，不能追问。先取消归档。</Text>
-        ) : (
-          <>
-            <Field
-              label="继续说"
+        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+          {tab === 'chat' ? (
+            <View style={styles.chat}>
+              {live ? <Text style={styles.live}>正在写…</Text> : null}
+              {stream.streamError ? <Text style={styles.meta}>{stream.streamError}</Text> : null}
+              {chatEmpty ? (
+                <Text style={styles.meta}>{live ? '等第一段回复。' : '还没有文字结果。'}</Text>
+              ) : null}
+              {stream.lines.length === 0 && run?.result ? <ChatText text={run.result} /> : null}
+              {stream.lines.map((line, index) => {
+                if (line.kind === 'tool') {
+                  return (
+                    <Text key={`${line.callId}-${index}`} style={styles.tool}>
+                      {toolLabel(line.name)}
+                      {line.status === 'completed' ? ' · 完成' : '…'}
+                    </Text>
+                  );
+                }
+                if (line.kind === 'thinking') {
+                  return (
+                    <Text key={`t-${index}`} style={styles.thinking}>
+                      {line.text}
+                    </Text>
+                  );
+                }
+                return <ChatText key={`a-${index}`} text={line.text} />;
+              })}
+            </View>
+          ) : (
+            <View style={styles.chat}>
+              {(run?.git?.branches ?? []).map((branch) => (
+                <Pressable
+                  key={`${branch.repoUrl}-${branch.prUrl ?? branch.branch}`}
+                  onPress={() => void openExternal(branch.prUrl || githubHttpsUrl(branch.repoUrl))}
+                  style={styles.diffRow}
+                >
+                  <Text style={styles.diffTitle}>{branch.prUrl ? 'Pull request' : '分支'}</Text>
+                  <Text style={styles.link}>{branch.prUrl || branch.branch || branch.repoUrl}</Text>
+                </Pressable>
+              ))}
+              {(artifacts.data?.items ?? []).map((item) => (
+                <Pressable
+                  key={item.path}
+                  style={styles.diffRow}
+                  onPress={() => {
+                    void download
+                      .mutateAsync(item.path)
+                      .then((file) => openExternal(file.url))
+                      .catch((err: unknown) => setError(err instanceof Error ? err.message : '无法打开文件'));
+                  }}
+                >
+                  <Text style={styles.diffTitle}>{fileName(item.path)}</Text>
+                  <Text style={styles.meta}>{formatBytes(item.sizeBytes)}</Text>
+                </Pressable>
+              ))}
+              {!run?.git?.branches?.length && !artifacts.data?.items.length ? (
+                <Text style={styles.meta}>还没有代码变更或文件。</Text>
+              ) : null}
+            </View>
+          )}
+        </ScrollView>
+
+        <View style={[styles.composerWrap, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+          {agent.status === 'ARCHIVED' ? (
+            <Text style={styles.meta}>已归档。打开右上角可以恢复。</Text>
+          ) : (
+            <Composer
               value={prompt}
               onChangeText={setPrompt}
-              placeholder={busy ? '当前轮次未结束' : '补充指令'}
-              multiline
-              autoCapitalize="sentences"
-            />
-            {images.map((image) => (
-              <View key={image.uri} style={styles.row}>
-                <Text style={styles.meta}>{image.fileName}</Text>
-                <Pressable onPress={() => setImages((current) => current.filter((item) => item.uri !== image.uri))}>
-                  <Text style={styles.link}>移除</Text>
-                </Pressable>
-              </View>
-            ))}
-            <Button
-              title="附加图片"
-              variant="ghost"
-              disabled={busy || images.length >= 5}
-              onPress={() => {
+              placeholder={busy ? '这一轮还在进行，先等它写完…' : 'Add a follow up'}
+              onSubmit={() => void onFollowUp()}
+              submitting={followUp.isPending}
+              disabled={busy}
+              modelLabel={modelLabel}
+              onAttach={() => {
                 void pickImages(images.length)
                   .then((next) => setImages((current) => [...current, ...next]))
                   .catch((err: unknown) => setError(err instanceof Error ? err.message : '无法选择图片'));
               }}
+              attachLabel={images.length ? images.map((item) => item.fileName).join(' · ') : undefined}
             />
-            {error ? <Text style={styles.error}>{error}</Text> : null}
-            <Button title="发送追问" onPress={() => void onFollowUp()} loading={followUp.isPending} disabled={busy || !prompt.trim()} />
-          </>
-        )}
-      </ScrollView>
+          )}
+          {error ? <Text style={styles.error}>{error}</Text> : null}
+        </View>
+      </View>
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: colors.bg },
-  content: { padding: spacing.md, gap: spacing.md, paddingBottom: 48 },
-  padded: { flex: 1, backgroundColor: colors.bg, padding: spacing.lg },
-  row: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center' },
-  actions: { gap: spacing.sm },
-  block: { gap: 6 },
-  section: { color: colors.muted, fontSize: 13, fontWeight: '600' },
-  id: { color: colors.muted, fontSize: 12 },
-  body: { color: colors.text, fontSize: 15, lineHeight: 22 },
-  thinking: { color: colors.muted, fontSize: 13, fontStyle: 'italic', lineHeight: 20 },
-  tool: { color: colors.accent, fontSize: 13 },
-  meta: { color: colors.muted, fontSize: 13, lineHeight: 20 },
-  link: { color: colors.accent, fontSize: 14 },
-  error: { color: colors.danger },
+  padded: { flex: 1, backgroundColor: colors.bg, padding: spacing.lg, gap: 12 },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.md,
+    paddingVertical: 8,
+    gap: 8,
+  },
+  backIcon: { color: colors.text, fontSize: 28, lineHeight: 30, width: 24 },
+  back: { color: colors.text, fontSize: 16 },
+  title: { flex: 1, textAlign: 'center', color: colors.text, fontSize: 16, fontWeight: '600' },
+  more: { color: colors.text, fontSize: 16, width: 28, textAlign: 'right' },
+  tabs: { paddingHorizontal: spacing.md, paddingBottom: 8 },
+  content: { paddingHorizontal: spacing.lg, paddingBottom: 24 },
+  chat: { gap: 14, paddingTop: 8 },
+  live: { color: colors.live, fontSize: 13, fontWeight: '600' },
+  thinking: { color: colors.muted, fontSize: 14, lineHeight: 20 },
+  tool: { color: colors.muted, fontSize: 13 },
+  meta: { color: colors.muted, fontSize: 14, lineHeight: 20 },
+  link: { color: colors.link, fontSize: 15 },
+  diffRow: { gap: 4, paddingVertical: 10 },
+  diffTitle: { color: colors.text, fontSize: 15, fontWeight: '600' },
+  composerWrap: {
+    paddingHorizontal: spacing.md,
+    paddingTop: 8,
+    backgroundColor: colors.bg,
+    gap: 8,
+  },
+  error: { color: colors.danger, fontSize: 13 },
 });
