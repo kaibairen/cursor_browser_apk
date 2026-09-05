@@ -9,6 +9,7 @@ import { useVoiceInput } from '../features/speech/useVoiceInput';
 import { colors, spacing } from '../theme';
 import { AccountMenuPopover, SETTINGS_TITLES, type SettingsPageId } from '../ui/accountMenu';
 import { ChatText } from '../ui/chatText';
+import { UserBubble } from '../ui/userBubble';
 import { Composer, RepoSourceBar } from '../ui/composer';
 import { AvatarButton, Segmented } from '../ui/primitives';
 import { SettingsChrome } from '../ui/settingsChrome';
@@ -91,7 +92,10 @@ export default function PreviewScreen() {
         </View>
         <ScrollView contentContainerStyle={styles.chat}>
           {tab === 'chat' ? (
-            <ChatText text={DEMO_MARKDOWN} />
+            <View style={{ gap: 14 }}>
+              <UserBubble text="这四件事分别根据什么来判断？对象是不是「会算但收尾选飞」。" />
+              <ChatText text={DEMO_MARKDOWN} />
+            </View>
           ) : (
             <View style={{ gap: 12 }}>
               <Text style={styles.diffTitle}>Pull request</Text>
@@ -117,6 +121,18 @@ export default function PreviewScreen() {
             hint={followVoice.error ?? undefined}
           />
         </View>
+        <ActionSheet
+          visible={picker === 'model'}
+          title="选择模型"
+          message="这一轮追问可以换模型。"
+          items={[
+            { id: '默认模型', label: '沿用此任务模型' },
+            { id: 'Composer', label: 'Composer' },
+            { id: 'Auto', label: 'Auto' },
+          ]}
+          onClose={() => setPicker(null)}
+          onSelect={setModel}
+        />
         <ActionSheet
           visible={more}
           title="记忆系统对齐分析"

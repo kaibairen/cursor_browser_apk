@@ -20,6 +20,7 @@ import {
   useArchiveAgent,
   useArtifacts,
   useCancelRun,
+  useConversation,
   useCreateFollowUp,
   useDeleteAgent,
   useDownloadArtifact,
@@ -38,6 +39,7 @@ import { formatBytes } from '../../lib/format';
 import { colors, spacing } from '../../theme';
 import { ArtifactViewer, type ArtifactView } from '../../ui/artifactViewer';
 import { ChatText } from '../../ui/chatText';
+import { UserBubble } from '../../ui/userBubble';
 import { Composer } from '../../ui/composer';
 import { githubHttpsUrl, openExternal } from '../../ui/openUrl';
 import { Segmented } from '../../ui/primitives';
@@ -58,6 +60,7 @@ export default function AgentDetailScreen() {
   const run = runQuery.data;
   const live = Boolean(run && !isTerminalRun(run.status));
   const stream = useRunStream(agentId, latestRunId, run?.status);
+  const conversation = useConversation(agentId, live);
   const followUp = useCreateFollowUp(agentId);
   const cancel = useCancelRun(agentId);
   const archive = useArchiveAgent(agentId);
@@ -69,6 +72,7 @@ export default function AgentDetailScreen() {
 
   const [tab, setTab] = useState<'chat' | 'diff'>('chat');
   const [prompt, setPrompt] = useState('');
+  const [pendingUser, setPendingUser] = useState<string | null>(null);
   const [modelId, setModelId] = useState('');
   const [modelPicker, setModelPicker] = useState(false);
   const [images, setImages] = useState<PickedImage[]>([]);
@@ -92,6 +96,7 @@ export default function AgentDetailScreen() {
     const text = prompt.trim();
     if (!text) return;
     try {
+      setPendingUser(text);
       await followUp.mutateAsync({
         prompt: { text, images: images.length ? await toPromptImages(images) : undefined },
         model: modelId ? { id: modelId } : undefined,
@@ -156,7 +161,15 @@ export default function AgentDetailScreen() {
     );
   }
 
-  const chatEmpty = stream.lines.length === 0 && !run?.result;
+  const messages = conversation.data?.messages ?? [];
+  const pendingVisible =
+    Boolean(pendingUser) && !messages.some((item) => item.type === 'user_message' && item.text === pendingUser);
+  const history = pendingVisible && pendingUser
+    ? [...messages, { id: 'pending-user', type: 'user_message', text: pendingUser }]
+    : messages;
+  const lastHistory = history[history.length - 1];
+  const showLiveAssistant = live || (stream.lines.length > 0 && lastHistory?.type === 'user_message');
+  const chatEmpty = history.length === 0 && stream.lines.length === 0 && !run?.result;
   const moreItems = [
     { id: 'web', label: '在浏览器打开', hint: '打开网页上的同一条任务' },
     ...(live && latestRunId ? [{ id: 'stop', label: '停止这一轮', hint: '取消当前正在写的回复' }] : []),
@@ -209,25 +222,36 @@ export default function AgentDetailScreen() {
               {chatEmpty ? (
                 <Text style={styles.meta}>{live ? '等第一段回复。' : '还没有文字结果。'}</Text>
               ) : null}
-              {stream.lines.length === 0 && run?.result ? <ChatText text={run.result} /> : null}
-              {stream.lines.map((line, index) => {
-                if (line.kind === 'tool') {
-                  return (
-                    <Text key={`${line.callId}-${index}`} style={styles.tool}>
-                      {toolLabel(line.name)}
-                      {line.status === 'completed' ? ' · 完成' : '…'}
-                    </Text>
-                  );
+              {history.map((item, index) => {
+                const skipTrailingAssistant =
+                  showLiveAssistant && item.type !== 'user_message' && index === history.length - 1;
+                if (skipTrailingAssistant) return null;
+                if (item.type === 'user_message') {
+                  return <UserBubble key={item.id} text={item.text} />;
                 }
-                if (line.kind === 'thinking') {
-                  return (
-                    <Text key={`t-${index}`} style={styles.thinking}>
-                      {line.text}
-                    </Text>
-                  );
-                }
-                return <ChatText key={`a-${index}`} text={line.text} />;
+                return <ChatText key={item.id} text={item.text} />;
               })}
+              {showLiveAssistant
+                ? stream.lines.map((line, index) => {
+                    if (line.kind === 'tool') {
+                      return (
+                        <Text key={`${line.callId}-${index}`} style={styles.tool}>
+                          {toolLabel(line.name)}
+                          {line.status === 'completed' ? ' · 完成' : '…'}
+                        </Text>
+                      );
+                    }
+                    if (line.kind === 'thinking') {
+                      return (
+                        <Text key={`t-${index}`} style={styles.thinking}>
+                          {line.text}
+                        </Text>
+                      );
+                    }
+                    return <ChatText key={`a-${index}`} text={line.text} />;
+                  })
+                : null}
+              {!showLiveAssistant && history.length === 0 && run?.result ? <ChatText text={run.result} /> : null}
             </View>
           ) : (
             <View style={styles.chat}>

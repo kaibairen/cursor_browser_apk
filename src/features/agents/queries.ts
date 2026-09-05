@@ -14,6 +14,7 @@ import {
   downloadArtifact,
   getAgent,
   getAgentUsage,
+  getConversation,
   getRun,
   listAgents,
   listArtifacts,
@@ -99,6 +100,25 @@ export function useRun(agentId: string, runId: string | undefined, live: boolean
       if (status && isTerminalRun(status)) return false;
       return 4_000;
     },
+    refetchIntervalInBackground: false,
+  });
+}
+
+export function useConversation(agentId: string, live: boolean) {
+  const apiKey = useOptionalApiKey();
+  const { handleApiError } = useAuth();
+  return useQuery({
+    queryKey: ['conversation', agentId],
+    enabled: Boolean(apiKey && agentId),
+    queryFn: async () => {
+      try {
+        return await getConversation(requireApiKey(apiKey), agentId);
+      } catch (error) {
+        handleApiError(error);
+        throw error;
+      }
+    },
+    refetchInterval: live ? 8_000 : false,
     refetchIntervalInBackground: false,
   });
 }
@@ -261,6 +281,7 @@ export function useCreateFollowUp(agentId: string) {
       void queryClient.invalidateQueries({ queryKey: ['runs', agentId] });
       void queryClient.invalidateQueries({ queryKey: ['run', agentId] });
       void queryClient.invalidateQueries({ queryKey: ['usage', agentId] });
+      void queryClient.invalidateQueries({ queryKey: ['conversation', agentId] });
     },
   });
 }

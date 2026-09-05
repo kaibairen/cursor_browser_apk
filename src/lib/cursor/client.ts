@@ -2,6 +2,7 @@ import { Platform } from 'react-native';
 import { CursorApiError, CursorAuthError, friendlyNetworkError, isRetryableStatus } from './errors';
 import type {
   Agent,
+  AgentConversation,
   AgentUsage,
   Artifact,
   ArtifactDownload,
@@ -15,6 +16,7 @@ import type {
   PromptInput,
   Repository,
   Run,
+  ConversationMessage,
   ConversationMode,
 } from './types';
 
@@ -139,6 +141,40 @@ export function listAgents(
 
 export function getAgent(apiKey: string, id: string): Promise<Agent> {
   return cursorFetch<Agent>(apiKey, `/v1/agents/${id}`);
+}
+
+function normalizeConversation(id: string, raw: Record<string, unknown>): AgentConversation {
+  const list = Array.isArray(raw.messages) ? raw.messages : [];
+  const messages: ConversationMessage[] = list.flatMap((item, index) => {
+    if (!item || typeof item !== 'object') return [];
+    const row = item as Record<string, unknown>;
+    const text = typeof row.text === 'string' ? row.text : typeof row.content === 'string' ? row.content : '';
+    if (!text.trim()) return [];
+    const type = String(row.type ?? row.role ?? '');
+    return [
+      {
+        id: String(row.id ?? `msg-${index}`),
+        type: /user/i.test(type) ? 'user_message' : 'assistant_message',
+        text,
+      },
+    ];
+  });
+  return { id: typeof raw.id === 'string' ? raw.id : id, messages };
+}
+
+export async function getConversation(apiKey: string, id: string): Promise<AgentConversation> {
+  for (const path of [`/v1/agents/${id}/conversation`, `/v0/agents/${id}/conversation`]) {
+    try {
+      const raw = await cursorFetch<Record<string, unknown>>(apiKey, path);
+      return normalizeConversation(id, raw);
+    } catch (error) {
+      if (error instanceof CursorApiError && (error.status === 404 || error.status === 405)) {
+        continue;
+      }
+      throw error;
+    }
+  }
+  return { id, messages: [] };
 }
 
 export function createAgent(

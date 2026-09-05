@@ -62,6 +62,19 @@ export interface GitBranch {
   prUrl?: string;
 }
 
+export type ConversationMessageType = 'user_message' | 'assistant_message';
+
+export interface ConversationMessage {
+  id: string;
+  type: ConversationMessageType | string;
+  text: string;
+}
+
+export interface AgentConversation {
+  id: string;
+  messages: ConversationMessage[];
+}
+
 export interface Run {
   id: string;
   agentId: string;
