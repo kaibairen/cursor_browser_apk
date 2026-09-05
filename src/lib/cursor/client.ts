@@ -50,6 +50,9 @@ async function parseError(res: Response): Promise<CursorApiError> {
   if (res.status === 401) {
     return new CursorAuthError(message);
   }
+  if (res.status === 409) {
+    return new CursorApiError(message || '这一轮还在写，写完后再发。', 409, code ?? 'agent_busy');
+  }
   if (res.status === 410) {
     return new CursorApiError(message, 410, code ?? 'stream_expired');
   }
@@ -204,6 +207,36 @@ export function downloadArtifact(
     apiKey,
     `/v1/agents/${agentId}/artifacts/download?${search.toString()}`,
   );
+}
+
+const TEXT_ARTIFACT = /\.(md|markdown|txt|json|csv|tsv|ya?ml|xml|html|css|js|jsx|ts|tsx|py|go|rs|java|kt|swift|sh|log|diff|patch|toml|ini|rst)$/i;
+const IMAGE_ARTIFACT = /\.(png|jpe?g|gif|webp|bmp|svg)$/i;
+const ARTIFACT_MAX_BYTES = 2 * 1024 * 1024;
+
+export function isTextArtifactPath(path: string): boolean {
+  return TEXT_ARTIFACT.test(path);
+}
+
+export function isImageArtifactPath(path: string): boolean {
+  return IMAGE_ARTIFACT.test(path);
+}
+
+export async function fetchArtifactUtf8(url: string): Promise<string> {
+  const href = Platform.OS === 'web' ? `/cursor-api/artifact?url=${encodeURIComponent(url)}` : url;
+  let res: Response;
+  try {
+    res = await fetch(href);
+  } catch (error) {
+    throw friendlyNetworkError(error);
+  }
+  if (!res.ok) {
+    throw new Error('无法读取文件内容');
+  }
+  const buffer = await res.arrayBuffer();
+  if (buffer.byteLength > ARTIFACT_MAX_BYTES) {
+    throw new Error('文件太大，没法在应用里打开');
+  }
+  return new TextDecoder('utf-8').decode(buffer);
 }
 
 export function archiveAgent(apiKey: string, id: string): Promise<{ id: string }> {

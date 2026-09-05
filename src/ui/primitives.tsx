@@ -64,7 +64,7 @@ export function Field({
 
 export function AvatarButton({ label, onPress }: { label: string; onPress: () => void }) {
   return (
-    <Pressable onPress={onPress} style={styles.avatar}>
+    <Pressable accessibilityRole="button" onPress={onPress} style={styles.avatar}>
       <Text style={styles.avatarText}>{label}</Text>
     </Pressable>
   );

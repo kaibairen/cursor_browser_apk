@@ -1,8 +1,6 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 import {
-  ActionSheetIOS,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -23,18 +21,24 @@ import {
   useCreateFollowUp,
   useDeleteAgent,
   useDownloadArtifact,
-  useModels,
   useRun,
   useUsage,
 } from '../../features/agents/queries';
 import { useRunStream } from '../../features/agents/useRunStream';
+import {
+  fetchArtifactUtf8,
+  isImageArtifactPath,
+  isTextArtifactPath,
+} from '../../lib/cursor/client';
 import { isTerminalRun } from '../../lib/cursor/types';
 import { formatBytes } from '../../lib/format';
 import { colors, spacing } from '../../theme';
+import { ArtifactViewer, type ArtifactView } from '../../ui/artifactViewer';
 import { ChatText } from '../../ui/chatText';
 import { Composer } from '../../ui/composer';
 import { githubHttpsUrl, openExternal } from '../../ui/openUrl';
 import { Segmented } from '../../ui/primitives';
+import { ActionSheet } from '../../ui/sheet';
 
 export default function AgentDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -49,7 +53,6 @@ export default function AgentDetailScreen() {
   const run = runQuery.data;
   const live = Boolean(run && !isTerminalRun(run.status));
   const stream = useRunStream(agentId, latestRunId, run?.status);
-  const models = useModels();
   const followUp = useCreateFollowUp(agentId);
   const cancel = useCancelRun(agentId);
   const archive = useArchiveAgent(agentId);
@@ -62,12 +65,18 @@ export default function AgentDetailScreen() {
   const [prompt, setPrompt] = useState('');
   const [images, setImages] = useState<PickedImage[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const busy = agent?.status === 'ACTIVE' || live || followUp.isPending || isBusyError(followUp.error);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [usageOpen, setUsageOpen] = useState(false);
+  const [artifactView, setArtifactView] = useState<ArtifactView | null>(null);
+  const [binaryUrl, setBinaryUrl] = useState<string | null>(null);
 
-  const modelLabel = useMemo(() => {
-    const first = models.data?.items[0];
-    return first?.displayName || '默认模型';
-  }, [models.data]);
+  const busy = agent?.status === 'ACTIVE' || live || followUp.isPending;
+  const usageText = useMemo(() => {
+    if (!usage.data) return '还没拉到用量。';
+    const total = usage.data.totalUsage;
+    return `一共 ${total.totalTokens.toLocaleString()} tokens\n输入 ${total.inputTokens.toLocaleString()} · 输出 ${total.outputTokens.toLocaleString()}`;
+  }, [usage.data]);
 
   async function onFollowUp() {
     setError(null);
@@ -80,73 +89,42 @@ export default function AgentDetailScreen() {
       setPrompt('');
       setImages([]);
     } catch (err) {
+      if (isBusyError(err)) {
+        setError('这一轮还在写。写完后再发，或点右上角停止。');
+        return;
+      }
       setError(err instanceof Error ? err.message : '发送失败');
     }
   }
 
-  function openMore() {
-    const actions = [
-      { label: '在浏览器打开', run: () => void openExternal(agent!.url) },
-      live && latestRunId
-        ? {
-            label: '停止这一轮',
-            run: () =>
-              void cancel.mutateAsync(latestRunId).catch((err: unknown) => {
-                setError(err instanceof Error ? err.message : '无法停止');
-              }),
-          }
-        : null,
-      {
-        label: agent?.status === 'ARCHIVED' ? '取消归档' : '归档',
-        run: () => void archive.mutateAsync(agent?.status === 'ARCHIVED'),
-      },
-      {
-        label: usage.data
-          ? `用量 ${usage.data.totalUsage.totalTokens.toLocaleString()} tokens`
-          : '查看用量',
-        run: () => {
-          if (!usage.data) return;
-          Alert.alert(
-            '用量',
-            `一共 ${usage.data.totalUsage.totalTokens.toLocaleString()} tokens\n输入 ${usage.data.totalUsage.inputTokens.toLocaleString()} · 输出 ${usage.data.totalUsage.outputTokens.toLocaleString()}`,
-          );
-        },
-      },
-      {
-        label: '删除',
-        destructive: true,
-        run: () => {
-          Alert.alert('删除任务', '删除后不能恢复。', [
-            { text: '取消', style: 'cancel' },
-            {
-              text: '删除',
-              style: 'destructive',
-              onPress: () => {
-                void remove.mutateAsync(agentId).then(() => router.replace('/(tabs)'));
-              },
-            },
-          ]);
-        },
-      },
-    ].filter(Boolean) as { label: string; run: () => void; destructive?: boolean }[];
-
-    if (Platform.OS === 'ios') {
-      ActionSheetIOS.showActionSheetWithOptions(
-        {
-          options: [...actions.map((item) => item.label), '取消'],
-          cancelButtonIndex: actions.length,
-          destructiveButtonIndex: actions.findIndex((item) => item.destructive),
-        },
-        (index) => {
-          if (index < actions.length) actions[index]?.run();
-        },
-      );
-      return;
+  async function openArtifact(path: string) {
+    const title = fileName(path);
+    setBinaryUrl(null);
+    setArtifactView({ status: 'loading', title });
+    try {
+      const file = await download.mutateAsync(path);
+      if (isImageArtifactPath(path)) {
+        setArtifactView({ status: 'image', title, uri: file.url });
+        return;
+      }
+      if (isTextArtifactPath(path)) {
+        const text = await fetchArtifactUtf8(file.url);
+        setArtifactView({ status: 'markdown', title, text });
+        return;
+      }
+      setBinaryUrl(file.url);
+      setArtifactView({
+        status: 'binary',
+        title,
+        hint: '这种文件没法在应用里预览，会打开系统浏览器。',
+      });
+    } catch (err) {
+      setArtifactView({
+        status: 'error',
+        title,
+        message: err instanceof Error ? err.message : '无法打开文件',
+      });
     }
-    Alert.alert(agent?.name ?? '任务', undefined, [
-      ...actions.map((item) => ({ text: item.label, onPress: item.run, style: item.destructive ? 'destructive' as const : undefined })),
-      { text: '取消', style: 'cancel' as const },
-    ]);
   }
 
   if (agentQuery.isError) {
@@ -169,25 +147,36 @@ export default function AgentDetailScreen() {
   }
 
   const chatEmpty = stream.lines.length === 0 && !run?.result;
+  const moreItems = [
+    { id: 'web', label: '在浏览器打开', hint: '打开网页上的同一条任务' },
+    ...(live && latestRunId ? [{ id: 'stop', label: '停止这一轮', hint: '取消当前正在写的回复' }] : []),
+    {
+      id: 'archive',
+      label: agent.status === 'ARCHIVED' ? '取消归档' : '归档',
+      hint: agent.status === 'ARCHIVED' ? '重新出现在列表里' : '从列表里收起来',
+    },
+    { id: 'usage', label: '用量', hint: usage.data ? `${usage.data.totalUsage.totalTokens.toLocaleString()} tokens` : '看这轮花了多少' },
+    { id: 'delete', label: '删除', hint: '删掉后不能恢复', destructive: true },
+  ];
 
   return (
     <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <View style={[styles.flex, { paddingTop: insets.top + 4 }]}>
         <View style={styles.header}>
-          <Pressable onPress={() => router.back()} hitSlop={12}>
+          <Pressable accessibilityRole="button" onPress={() => router.back()} hitSlop={12}>
             <Text style={styles.backIcon}>‹</Text>
           </Pressable>
           <Text style={styles.title} numberOfLines={1}>
             {agent.name || '任务'}
           </Text>
-          <Pressable onPress={openMore} hitSlop={12}>
+          <Pressable accessibilityRole="button" onPress={() => setMenuOpen(true)} hitSlop={12}>
             <Text style={styles.more}>•••</Text>
           </Pressable>
         </View>
         <View style={styles.tabs}>
           <Segmented
             value={tab}
-            onChange={(id) => setTab(id as 'chat' | 'diff')}
+            onChange={(next) => setTab(next as 'chat' | 'diff')}
             options={[
               { id: 'chat', label: 'Chat' },
               { id: 'diff', label: 'Diff' },
@@ -233,21 +222,18 @@ export default function AgentDetailScreen() {
                 >
                   <Text style={styles.diffTitle}>{branch.prUrl ? 'Pull request' : '分支'}</Text>
                   <Text style={styles.link}>{branch.prUrl || branch.branch || branch.repoUrl}</Text>
+                  <Text style={styles.meta}>会打开系统浏览器看 GitHub</Text>
                 </Pressable>
               ))}
               {(artifacts.data?.items ?? []).map((item) => (
-                <Pressable
-                  key={item.path}
-                  style={styles.diffRow}
-                  onPress={() => {
-                    void download
-                      .mutateAsync(item.path)
-                      .then((file) => openExternal(file.url))
-                      .catch((err: unknown) => setError(err instanceof Error ? err.message : '无法打开文件'));
-                  }}
-                >
+                <Pressable key={item.path} style={styles.diffRow} onPress={() => void openArtifact(item.path)}>
                   <Text style={styles.diffTitle}>{fileName(item.path)}</Text>
-                  <Text style={styles.meta}>{formatBytes(item.sizeBytes)}</Text>
+                  <Text style={styles.meta}>
+                    {formatBytes(item.sizeBytes)}
+                    {isTextArtifactPath(item.path) || isImageArtifactPath(item.path)
+                      ? ' · 应用内打开'
+                      : ' · 可能要去浏览器'}
+                  </Text>
                 </Pressable>
               ))}
               {!run?.git?.branches?.length && !artifacts.data?.items.length ? (
@@ -264,11 +250,11 @@ export default function AgentDetailScreen() {
             <Composer
               value={prompt}
               onChangeText={setPrompt}
-              placeholder={busy ? '这一轮还在进行，先等它写完…' : 'Add a follow up'}
+              placeholder="Add a follow up"
               onSubmit={() => void onFollowUp()}
               submitting={followUp.isPending}
-              disabled={busy}
-              modelLabel={modelLabel}
+              modelLabel="沿用此任务模型"
+              hint={busy ? '这一轮还在写。可以先打字，写完再发；现在发可能会被拒绝。' : undefined}
               onAttach={() => {
                 void pickImages(images.length)
                   .then((next) => setImages((current) => [...current, ...next]))
@@ -280,6 +266,63 @@ export default function AgentDetailScreen() {
           {error ? <Text style={styles.error}>{error}</Text> : null}
         </View>
       </View>
+
+      <ActionSheet
+        visible={menuOpen}
+        title={agent.name || '任务'}
+        items={moreItems}
+        onClose={() => setMenuOpen(false)}
+        onSelect={(id) => {
+          if (id === 'web') {
+            void openExternal(agent.url);
+            return;
+          }
+          if (id === 'stop' && latestRunId) {
+            void cancel.mutateAsync(latestRunId).catch((err: unknown) => {
+              setError(err instanceof Error ? err.message : '无法停止');
+            });
+            return;
+          }
+          if (id === 'archive') {
+            void archive.mutateAsync(agent.status === 'ARCHIVED');
+            return;
+          }
+          if (id === 'usage') {
+            void usage.refetch();
+            setUsageOpen(true);
+            return;
+          }
+          if (id === 'delete') {
+            setConfirmDelete(true);
+          }
+        }}
+      />
+      <ActionSheet
+        visible={usageOpen}
+        title="用量"
+        message={usageText}
+        items={[]}
+        onClose={() => setUsageOpen(false)}
+        onSelect={() => undefined}
+      />
+      <ActionSheet
+        visible={confirmDelete}
+        title="删除任务"
+        message="删除后不能恢复。"
+        items={[{ id: 'yes', label: '删除', destructive: true }]}
+        onClose={() => setConfirmDelete(false)}
+        onSelect={() => {
+          void remove.mutateAsync(agentId).then(() => router.replace('/home'));
+        }}
+      />
+      <ArtifactViewer
+        view={artifactView}
+        onClose={() => {
+          setArtifactView(null);
+          setBinaryUrl(null);
+        }}
+        onOpenExternal={binaryUrl ? () => void openExternal(binaryUrl) : undefined}
+      />
     </KeyboardAvoidingView>
   );
 }

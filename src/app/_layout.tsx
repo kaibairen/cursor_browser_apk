@@ -23,22 +23,22 @@ function AuthGate({ children }: { children: ReactNode }) {
   const segments = useSegments();
   const router = useRouter();
   const root = segments[0];
-    const onSetup = root === 'setup';
-    const onPreview = root === 'preview';
-    const onProtected = root === '(tabs)' || root === 'agent' || root === 'settings';
+  const onSetup = root === 'setup';
+  const onPreview = root === 'preview';
+  const publicRoute = onSetup || onPreview || root == null;
 
-    useEffect(() => {
+  useEffect(() => {
     if (!ready) {
       return;
     }
     if (!signedIn && !onSetup && !onPreview) {
       router.replace('/setup');
-    } else if (signedIn && onSetup) {
-      router.replace('/(tabs)');
+    } else if (signedIn && (onSetup || root === '(tabs)')) {
+      router.replace('/home');
     }
-  }, [ready, signedIn, onSetup, onPreview, router]);
+  }, [ready, signedIn, onSetup, onPreview, root, router]);
 
-  if (!ready || (!signedIn && onProtected)) {
+  if (!ready || (!signedIn && !publicRoute)) {
     return (
       <View style={{ flex: 1, backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center' }}>
         <ActivityIndicator color={colors.accent} />
@@ -67,7 +67,7 @@ export default function RootLayout() {
               <Stack.Screen name="index" />
               <Stack.Screen name="setup" />
               <Stack.Screen name="preview" />
-              <Stack.Screen name="(tabs)" />
+              <Stack.Screen name="home" />
               <Stack.Screen name="settings" />
               <Stack.Screen name="agent/[id]" />
             </Stack>

@@ -1,5 +1,5 @@
 import { Redirect } from 'expo-router';
 
-export default function SettingsRedirect() {
+export default function LegacySettingsRedirect() {
   return <Redirect href="/settings" />;
 }

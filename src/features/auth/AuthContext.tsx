@@ -108,9 +108,14 @@ export function useAuth(): AuthContextValue {
   return ctx;
 }
 
+export function useOptionalApiKey(): string | null {
+  const { apiKey, signedIn } = useAuth();
+  return signedIn && apiKey ? apiKey : null;
+}
+
 export function useApiKey(): string {
-  const { apiKey, status } = useAuth();
-  if (status !== 'signedIn' || !apiKey) {
+  const apiKey = useOptionalApiKey();
+  if (!apiKey) {
     throw new Error('Not signed in');
   }
   return apiKey;

@@ -14,5 +14,5 @@ export default function Index() {
     );
   }
 
-  return <Redirect href={signedIn ? '/(tabs)' : '/setup'} />;
+  return <Redirect href={signedIn ? '/home' : '/setup'} />;
 }
