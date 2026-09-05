@@ -46,6 +46,7 @@ import { ArtifactViewer, type ArtifactView } from '../../ui/artifactViewer';
 import { ChatLoading } from '../../ui/chatLoading';
 import { ChatText } from '../../ui/chatText';
 import { ThinkingBlock } from '../../ui/thinkingBlock';
+import { useSmoothText } from '../../ui/useSmoothText';
 import { UserBubble } from '../../ui/userBubble';
 import { Composer } from '../../ui/composer';
 import { githubHttpsUrl, openExternal } from '../../ui/openUrl';
@@ -122,6 +123,12 @@ export default function AgentDetailScreen() {
       (thinking.done && thinkingStarted.current ? Date.now() - thinkingStarted.current : undefined);
     setKeptThinking({ text: thinking.text, durationMs });
   }, [stream.lines]);
+
+  const streamAssistantLine = stream.lines.find((line) => line.kind === 'assistant' && line.text);
+  const streamAssistantText = streamAssistantLine?.kind === 'assistant' ? streamAssistantLine.text : '';
+  const thinkingAnimating = Boolean((keptThinking || followUp.isPending || stream.live) && (live || followUp.isPending));
+  const smoothThinking = useSmoothText(keptThinking?.text ?? '', thinkingAnimating);
+  const smoothAssistant = useSmoothText(streamAssistantText, Boolean(stream.live && streamAssistantText));
 
   const usageText = useMemo(() => {
     if (!usage.data) return '还没拉到用量。';
@@ -293,7 +300,7 @@ export default function AgentDetailScreen() {
                 : null}
               {!showChatSpinner && showThinking ? (
                 <ThinkingBlock
-                  text={keptThinking?.text ?? ''}
+                  text={thinkingDone ? keptThinking?.text ?? '' : smoothThinking}
                   done={thinkingDone}
                   durationMs={keptThinking?.durationMs}
                   defaultOpen={!thinkingDone}
@@ -312,7 +319,7 @@ export default function AgentDetailScreen() {
               {!showChatSpinner && streamAssistant && streamAssistant.kind === 'assistant' ? (
                 stream.live ? (
                   <Text style={styles.liveText}>
-                    {streamAssistant.text}
+                    {smoothAssistant}
                     <Text style={styles.caret}>▍</Text>
                   </Text>
                 ) : (
