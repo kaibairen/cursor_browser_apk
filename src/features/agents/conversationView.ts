@@ -18,6 +18,23 @@ export function lastAssistantAfter(messages: ConversationMessage[], userIndex: n
   return -1;
 }
 
+export function assistantCount(messages: ConversationMessage[]): number {
+  return messages.reduce((count, item) => count + (isUserMessage(item) ? 0 : 1), 0);
+}
+
+export function mergeConversation(
+  server: ConversationMessage[],
+  local: ConversationMessage[],
+): ConversationMessage[] {
+  if (!server.length && local.length) return local;
+  if (!local.length) return server;
+  const serverAssistants = assistantCount(server);
+  const localAssistants = assistantCount(local);
+  const base = serverAssistants >= localAssistants && server.length ? server : local;
+  const other = base === server ? local : server;
+  return mergePreservingLocalUsers(base, other);
+}
+
 export function isLocalUserId(id: string): boolean {
   return id.startsWith('local-user:') || id.startsWith('local-user-') || id.startsWith('pending-');
 }

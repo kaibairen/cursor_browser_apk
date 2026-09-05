@@ -34,7 +34,7 @@ import {
   isImageArtifactPath,
   isTextArtifactPath,
 } from '../../lib/cursor/client';
-import { isTerminalRun } from '../../lib/cursor/types';
+import { isTerminalRun, type ConversationMessage } from '../../lib/cursor/types';
 import { formatBytes } from '../../lib/format';
 import { colors, spacing } from '../../theme';
 import {
@@ -42,7 +42,7 @@ import {
   isUserMessage,
   lastAssistantAfter,
   lastUserIndex,
-  mergePreservingLocalUsers,
+  mergeConversation,
 } from '../../features/agents/conversationView';
 import { ArtifactViewer, type ArtifactView } from '../../ui/artifactViewer';
 import { ChatLoading } from '../../ui/chatLoading';
@@ -100,6 +100,7 @@ export default function AgentDetailScreen() {
   const [binaryUrl, setBinaryUrl] = useState<string | null>(null);
   const voice = useVoiceInput(prompt, setPrompt);
   const scrollRef = useRef<ScrollView>(null);
+  const historyHold = useRef<ConversationMessage[]>([]);
 
   useEffect(() => {
     if (conversation.isFetching) return;
@@ -119,6 +120,7 @@ export default function AgentDetailScreen() {
   useEffect(() => {
     modelReady.current = false;
     setModelId('');
+    historyHold.current = [];
   }, [agentId]);
 
   useEffect(() => {
@@ -264,10 +266,18 @@ export default function AgentDetailScreen() {
   }
 
   const serverMessages = conversation.data?.messages ?? [];
-  const history = mergePreservingLocalUsers(
+  const incoming = mergeConversation(
     serverMessages,
     pendingUsers.map((item) => ({ id: item.id, type: 'user_message', text: item.text })),
   );
+  const history = mergeConversation(incoming, historyHold.current);
+  if (
+    history.length > historyHold.current.length ||
+    history.filter((item) => !isUserMessage(item)).length >=
+      historyHold.current.filter((item) => !isUserMessage(item)).length
+  ) {
+    historyHold.current = history;
+  }
   const hasLocalSend = pendingUsers.length > 0;
   const hasUser = history.some(isUserMessage);
   const conversationReady = conversation.isSuccess || conversation.isError;
@@ -597,7 +607,7 @@ const styles = StyleSheet.create({
   title: { textAlign: 'center', color: colors.text, fontSize: 16, fontWeight: '600' },
   project: { textAlign: 'center', color: colors.muted, fontSize: 12 },
   more: { color: colors.text, fontSize: 16, width: 28, textAlign: 'right' },
-  tabs: { paddingHorizontal: spacing.md, paddingBottom: 8 },
+  tabs: { paddingHorizontal: spacing.md, paddingBottom: 8, alignItems: 'center' },
   content: { paddingHorizontal: spacing.lg, paddingBottom: 24 },
   chat: { gap: 14, paddingTop: 8 },
   turn: { gap: 14 },

@@ -1,6 +1,6 @@
 import { consumeSseBuffer, parseSseBlock } from '../src/lib/cursor/sseParse.ts';
 import { applySseEvent, ensureThinkingLine, type TranscriptLine } from '../src/lib/cursor/sseApply.ts';
-import { isLocalUserId, lastAssistantAfter, lastUserIndex, mergePreservingLocalUsers, seedUserMessage } from '../src/features/agents/conversationView.ts';
+import { isLocalUserId, lastAssistantAfter, lastUserIndex, mergeConversation, mergePreservingLocalUsers, seedUserMessage } from '../src/features/agents/conversationView.ts';
 import { eventPhase, prepareBurst, replayDelayMs } from '../src/lib/cursor/ssePace.ts';
 import { defaultCatalogModelId, resolveStoredModelId } from '../src/features/agents/models.ts';
 import { readModelId } from '../src/lib/cursor/modelId.ts';
@@ -163,6 +163,35 @@ if (lastUserIndex([{ id: '1', type: 'user_message', text: 'hi' }, { id: '2', typ
 }
 if (lastAssistantAfter([{ id: '1', type: 'user_message', text: 'hi' }, { id: '2', type: 'assistant_message', text: 'yo' }], 0) !== 1) {
   throw new Error('lastAssistantAfter failed');
+}
+
+const kept = mergeConversation(
+  [],
+  [
+    { id: 'u1', type: 'user_message', text: '上一轮' },
+    { id: 'a1', type: 'assistant_message', text: '旧回复' },
+    { id: 'u2', type: 'user_message', text: '新的一问' },
+  ],
+);
+if (kept.length !== 3 || kept[1]?.text !== '旧回复') {
+  throw new Error(`empty server should keep local history: ${JSON.stringify(kept)}`);
+}
+
+const grown = mergeConversation(
+  [
+    { id: 'u1', type: 'user_message', text: '上一轮' },
+    { id: 'a1', type: 'assistant_message', text: '旧回复' },
+    { id: 'u2', type: 'user_message', text: '新的一问' },
+    { id: 'a2', type: 'assistant_message', text: '新回复' },
+  ],
+  [
+    { id: 'u1', type: 'user_message', text: '上一轮' },
+    { id: 'a1', type: 'assistant_message', text: '旧回复' },
+    { id: 'pending-1', type: 'user_message', text: '新的一问' },
+  ],
+);
+if (grown.length !== 4 || grown[3]?.text !== '新回复') {
+  throw new Error(`server assistant should win: ${JSON.stringify(grown)}`);
 }
 if (eventPhase({ event: 'thinking', data: '{"text":"x"}' }) !== 'thinking') {
   throw new Error('thinking phase');

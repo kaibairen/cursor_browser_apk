@@ -38,7 +38,7 @@ import {
 } from '../../lib/cursor/types';
 import { useAuth, useOptionalApiKey } from '../auth/AuthContext';
 import { loadPrefs, rememberAgentModel, rememberAgentProjects, rememberRepo, savePrefs } from '../../storage/prefs';
-import { mergePreservingLocalUsers, seedUserMessage } from './conversationView';
+import { mergeConversation, seedUserMessage } from './conversationView';
 import { agentProjectEntry } from './projects';
 
 function requireApiKey(apiKey: string | null): string {
@@ -66,7 +66,7 @@ async function loadConversation(
   const local = queryClient.getQueryData<AgentConversation>(['conversation', agentId]);
   return {
     id: server.id,
-    messages: mergePreservingLocalUsers(server.messages, local?.messages ?? []),
+    messages: mergeConversation(server.messages, local?.messages ?? []),
   };
 }
 
@@ -362,10 +362,11 @@ export function useCreateFollowUp(agentId: string) {
     },
     onMutate: async (input) => {
       const key = ['conversation', agentId] as const;
-      await queryClient.cancelQueries({ queryKey: key });
       const previous = queryClient.getQueryData<AgentConversation>(key);
-      queryClient.setQueryData<AgentConversation>(key, seedUserMessage(previous, agentId, input.prompt.text));
-      return { previous };
+      await queryClient.cancelQueries({ queryKey: key });
+      const retained = queryClient.getQueryData<AgentConversation>(key) ?? previous;
+      queryClient.setQueryData<AgentConversation>(key, seedUserMessage(retained, agentId, input.prompt.text));
+      return { previous: retained };
     },
     onError: (_error, _input, context) => {
       if (context?.previous) {

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { colors, spacing } from '../theme';
+import { colors } from '../theme';
 
 export function ThinkingBlock({
   text,
@@ -38,7 +38,7 @@ export function ThinkingBlock({
 }
 
 const styles = StyleSheet.create({
-  wrap: { gap: 6 },
+  wrap: { gap: 6, alignSelf: 'stretch' },
   title: { color: colors.muted, fontSize: 14, fontWeight: '600' },
-  body: { color: colors.muted, fontSize: 14, lineHeight: 20, paddingLeft: spacing.sm },
+  body: { color: colors.muted, fontSize: 14, lineHeight: 20 },
 });

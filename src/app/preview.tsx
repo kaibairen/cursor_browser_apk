@@ -431,7 +431,7 @@ const styles = StyleSheet.create({
   back: { color: colors.text, fontSize: 28, width: 24 },
   title: { flex: 1, textAlign: 'center', color: colors.text, fontSize: 16, fontWeight: '600' },
   more: { width: 28, textAlign: 'right', color: colors.text },
-  tabs: { paddingHorizontal: spacing.md, paddingBottom: 8 },
+  tabs: { paddingHorizontal: spacing.md, paddingBottom: 8, alignItems: 'center' },
   chat: { paddingHorizontal: spacing.lg, paddingBottom: 24, gap: 12 },
   composerWrap: { paddingHorizontal: spacing.md, paddingTop: 8, backgroundColor: colors.bg },
   liveText: { color: colors.text, fontSize: 16, lineHeight: 24 },
