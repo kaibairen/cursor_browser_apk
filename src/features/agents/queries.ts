@@ -3,6 +3,8 @@ import {
   useMutation,
   useQuery,
   useQueryClient,
+  type InfiniteData,
+  type QueryClient,
 } from '@tanstack/react-query';
 import * as Crypto from 'expo-crypto';
 import {
@@ -14,6 +16,7 @@ import {
   downloadArtifact,
   getAgent,
   getAgentUsage,
+  getConversation,
   getRun,
   listAgents,
   listArtifacts,
@@ -23,15 +26,48 @@ import {
   unarchiveAgent,
 } from '../../lib/cursor/client';
 import { CursorApiError } from '../../lib/cursor/errors';
-import { isTerminalRun, type ConversationMode, type CreateAgentRequest, type PromptInput } from '../../lib/cursor/types';
+import {
+  isTerminalRun,
+  type Agent,
+  type AgentConversation,
+  type AgentListItem,
+  type ConversationMode,
+  type CreateAgentRequest,
+  type Paginated,
+  type PromptInput,
+} from '../../lib/cursor/types';
 import { useAuth, useOptionalApiKey } from '../auth/AuthContext';
-import { loadPrefs, rememberRepo, savePrefs } from '../../storage/prefs';
+import { loadPrefs, rememberAgentProjects, rememberRepo, savePrefs } from '../../storage/prefs';
+import { mergePreservingLocalUsers, seedUserMessage } from './conversationView';
+import { agentProjectEntry } from './projects';
 
 function requireApiKey(apiKey: string | null): string {
   if (!apiKey) {
     throw new Error('Not signed in');
   }
   return apiKey;
+}
+
+function findListedAgent(queryClient: QueryClient, id: string): AgentListItem | undefined {
+  const entries = queryClient.getQueriesData<InfiniteData<Paginated<AgentListItem>>>({ queryKey: ['agents'] });
+  for (const [, data] of entries) {
+    const match = data?.pages.flatMap((page) => page.items).find((item) => item.id === id);
+    if (match) return match;
+  }
+  return undefined;
+}
+
+async function loadConversation(
+  apiKey: string,
+  agentId: string,
+  queryClient: QueryClient,
+): Promise<AgentConversation> {
+  const server = await getConversation(apiKey, agentId);
+  const local = queryClient.getQueryData<AgentConversation>(['conversation', agentId]);
+  return {
+    id: server.id,
+    messages: mergePreservingLocalUsers(server.messages, local?.messages ?? []),
+  };
 }
 
 export function useAgentList(options: { includeArchived?: boolean; enabled?: boolean } = {}) {
@@ -60,17 +96,21 @@ export function useAgentList(options: { includeArchived?: boolean; enabled?: boo
 export function useAgent(id: string) {
   const apiKey = useOptionalApiKey();
   const { handleApiError } = useAuth();
+  const queryClient = useQueryClient();
   return useQuery({
     queryKey: ['agent', id],
     enabled: Boolean(apiKey && id),
     queryFn: async () => {
       try {
-        return await getAgent(requireApiKey(apiKey), id);
+        const agent = await getAgent(requireApiKey(apiKey), id);
+        await rememberAgentProjects({ [agent.id]: agentProjectEntry(agent) });
+        return agent;
       } catch (error) {
         handleApiError(error);
         throw error;
       }
     },
+    placeholderData: () => findListedAgent(queryClient, id) as Agent | undefined,
     refetchInterval: 12_000,
     refetchIntervalInBackground: false,
   });
@@ -98,6 +138,55 @@ export function useRun(agentId: string, runId: string | undefined, live: boolean
     },
     refetchIntervalInBackground: false,
   });
+}
+
+export function useConversation(agentId: string, live: boolean) {
+  const apiKey = useOptionalApiKey();
+  const { handleApiError } = useAuth();
+  const queryClient = useQueryClient();
+  return useQuery({
+    queryKey: ['conversation', agentId],
+    enabled: Boolean(apiKey && agentId),
+    queryFn: async () => {
+      try {
+        return await loadConversation(requireApiKey(apiKey), agentId, queryClient);
+      } catch (error) {
+        handleApiError(error);
+        throw error;
+      }
+    },
+    placeholderData: (previous) => previous,
+    refetchInterval: live ? 8_000 : false,
+    refetchIntervalInBackground: false,
+  });
+}
+
+export function usePrefetchAgentDetail() {
+  const apiKey = useOptionalApiKey();
+  const queryClient = useQueryClient();
+  const { handleApiError } = useAuth();
+  return (id: string) => {
+    if (!apiKey || !id) return;
+    void queryClient.prefetchQuery({
+      queryKey: ['agent', id],
+      queryFn: async () => {
+        const agent = await getAgent(requireApiKey(apiKey), id);
+        await rememberAgentProjects({ [agent.id]: agentProjectEntry(agent) });
+        return agent;
+      },
+    });
+    void queryClient.prefetchQuery({
+      queryKey: ['conversation', id],
+      queryFn: async () => {
+        try {
+          return await loadConversation(requireApiKey(apiKey), id, queryClient);
+        } catch (error) {
+          handleApiError(error);
+          throw error;
+        }
+      },
+    });
+  };
 }
 
 export function useRuns(agentId: string) {
@@ -212,6 +301,7 @@ export function useCreateAgent() {
       const agentId = `bc-${Crypto.randomUUID()}`;
       try {
         const result = await createAgent(key, { ...body, agentId });
+        await rememberAgentProjects({ [result.agent.id]: agentProjectEntry(result.agent) });
         if (body.repos?.[0]?.url) {
           await rememberRepo(body.repos[0].url);
         }
@@ -230,8 +320,14 @@ export function useCreateAgent() {
         throw error;
       }
     },
-    onSuccess: () => {
+    onSuccess: (result, body) => {
       void queryClient.invalidateQueries({ queryKey: ['agents'] });
+      const text = body.prompt?.text?.trim();
+      if (text) {
+        queryClient.setQueryData<AgentConversation>(['conversation', result.agent.id], (current) =>
+          seedUserMessage(current, result.agent.id, text),
+        );
+      }
     },
   });
 }
@@ -241,12 +337,27 @@ export function useCreateFollowUp(agentId: string) {
   const queryClient = useQueryClient();
   const { handleApiError } = useAuth();
   return useMutation({
-    mutationFn: async (input: { prompt: PromptInput; mode?: ConversationMode }) => {
+    mutationFn: async (input: { prompt: PromptInput; mode?: ConversationMode; model?: { id: string } }) => {
       try {
-        return await createRun(requireApiKey(apiKey), agentId, input.prompt, input.mode);
+        return await createRun(requireApiKey(apiKey), agentId, input.prompt, {
+          mode: input.mode,
+          model: input.model,
+        });
       } catch (error) {
         handleApiError(error);
         throw error;
+      }
+    },
+    onMutate: async (input) => {
+      const key = ['conversation', agentId] as const;
+      await queryClient.cancelQueries({ queryKey: key });
+      const previous = queryClient.getQueryData<AgentConversation>(key);
+      queryClient.setQueryData<AgentConversation>(key, seedUserMessage(previous, agentId, input.prompt.text));
+      return { previous };
+    },
+    onError: (_error, _input, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(['conversation', agentId], context.previous);
       }
     },
     onSuccess: () => {
@@ -254,6 +365,7 @@ export function useCreateFollowUp(agentId: string) {
       void queryClient.invalidateQueries({ queryKey: ['runs', agentId] });
       void queryClient.invalidateQueries({ queryKey: ['run', agentId] });
       void queryClient.invalidateQueries({ queryKey: ['usage', agentId] });
+      void queryClient.invalidateQueries({ queryKey: ['conversation', agentId] });
     },
   });
 }

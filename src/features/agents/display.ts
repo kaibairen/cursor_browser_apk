@@ -4,10 +4,14 @@ export function agentTitle(item: Pick<AgentListItem, 'name' | 'id'>): string {
   return item.name?.trim() || '未命名任务';
 }
 
-export function agentSubtitle(item: AgentListItem): string {
+export function agentSubtitle(item: AgentListItem, projectTitle?: string): string {
+  if (projectTitle && projectTitle !== '未绑定仓库') return projectTitle;
   if (item.env?.name) return item.env.name;
+  if (item.repos?.[0]?.url) {
+    return item.repos[0].url.replace(/^https?:\/\/(github\.com\/)?/, '');
+  }
   if (item.env?.type && item.env.type !== 'cloud') return item.env.type;
-  return 'Cloud';
+  return '未绑定仓库';
 }
 
 export function initials(name?: string | null, email?: string | null): string {

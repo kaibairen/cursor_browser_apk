@@ -2,6 +2,7 @@ import { Platform } from 'react-native';
 import { CursorApiError, CursorAuthError, friendlyNetworkError, isRetryableStatus } from './errors';
 import type {
   Agent,
+  AgentConversation,
   AgentUsage,
   Artifact,
   ArtifactDownload,
@@ -15,6 +16,7 @@ import type {
   PromptInput,
   Repository,
   Run,
+  ConversationMessage,
   ConversationMode,
 } from './types';
 
@@ -141,6 +143,77 @@ export function getAgent(apiKey: string, id: string): Promise<Agent> {
   return cursorFetch<Agent>(apiKey, `/v1/agents/${id}`);
 }
 
+function messageText(row: Record<string, unknown>): string {
+  if (typeof row.text === 'string' && row.text.trim()) return row.text;
+  if (typeof row.content === 'string' && row.content.trim()) return row.content;
+  if (Array.isArray(row.content)) {
+    return row.content
+      .map((part) => {
+        if (typeof part === 'string') return part;
+        if (part && typeof part === 'object' && typeof (part as { text?: unknown }).text === 'string') {
+          return (part as { text: string }).text;
+        }
+        return '';
+      })
+      .join('');
+  }
+  const prompt = row.prompt;
+  if (prompt && typeof prompt === 'object' && typeof (prompt as { text?: unknown }).text === 'string') {
+    return (prompt as { text: string }).text;
+  }
+  return '';
+}
+
+function normalizeConversation(id: string, raw: Record<string, unknown>): AgentConversation {
+  const list = Array.isArray(raw.messages) ? raw.messages : [];
+  const messages: ConversationMessage[] = list.flatMap((item, index) => {
+    if (!item || typeof item !== 'object') return [];
+    const row = item as Record<string, unknown>;
+    const text = messageText(row);
+    if (!text.trim()) return [];
+    const type = String(row.type ?? row.role ?? '');
+    return [
+      {
+        id: String(row.id ?? `msg-${index}`),
+        type: /user/i.test(type) ? 'user_message' : 'assistant_message',
+        text,
+      },
+    ];
+  });
+  return { id: typeof raw.id === 'string' ? raw.id : id, messages };
+}
+
+function conversationHasUser(conversation: AgentConversation): boolean {
+  return conversation.messages.some((item) => /user/i.test(item.type));
+}
+
+async function tryConversation(
+  apiKey: string,
+  path: string,
+  id: string,
+): Promise<AgentConversation | null> {
+  try {
+    const raw = await cursorFetch<Record<string, unknown>>(apiKey, path);
+    return normalizeConversation(id, raw);
+  } catch (error) {
+    if (error instanceof CursorApiError && (error.status === 404 || error.status === 405)) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+export async function getConversation(apiKey: string, id: string): Promise<AgentConversation> {
+  // v0 is the documented conversation history with user_message / assistant_message.
+  const v0 = await tryConversation(apiKey, `/v0/agents/${id}/conversation`, id);
+  if (v0 && conversationHasUser(v0)) return v0;
+  const v1 = await tryConversation(apiKey, `/v1/agents/${id}/conversation`, id);
+  if (v1 && conversationHasUser(v1)) return v1;
+  if (v0 && v0.messages.length >= (v1?.messages.length ?? 0)) return v0;
+  if (v1) return v1;
+  return { id, messages: [] };
+}
+
 export function createAgent(
   apiKey: string,
   body: CreateAgentRequest,
@@ -155,11 +228,15 @@ export function createRun(
   apiKey: string,
   agentId: string,
   prompt: PromptInput,
-  mode?: ConversationMode,
+  options?: { mode?: ConversationMode; model?: { id: string } },
 ): Promise<CreateRunResponse> {
   return cursorFetch<CreateRunResponse>(apiKey, `/v1/agents/${agentId}/runs`, {
     method: 'POST',
-    body: { prompt, ...(mode ? { mode } : {}) },
+    body: {
+      prompt,
+      ...(options?.mode ? { mode: options.mode } : {}),
+      ...(options?.model ? { model: options.model } : {}),
+    },
   });
 }
 

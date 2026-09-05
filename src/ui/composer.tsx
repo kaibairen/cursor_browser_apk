@@ -1,6 +1,8 @@
 import type { ReactNode } from 'react';
+import { useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { colors, radius, spacing } from '../theme';
+import { webNoOutline } from './webStyles';
 
 type ComposerProps = {
   value: string;
@@ -19,6 +21,24 @@ type ComposerProps = {
   children?: ReactNode;
 };
 
+export function RepoSourceBar({ label, onPress }: { label: string; onPress: () => void }) {
+  return (
+    <Pressable accessibilityRole="button" accessibilityLabel="选择仓库" onPress={onPress} style={styles.source}>
+      <Text style={styles.sourceText}>{label} ▾</Text>
+    </Pressable>
+  );
+}
+
+function MicIcon({ color }: { color: string }) {
+  return (
+    <View style={styles.micGlyph} accessibilityElementsHidden>
+      <View style={[styles.micHead, { borderColor: color }]} />
+      <View style={[styles.micArc, { borderColor: color }]} />
+      <View style={[styles.micStem, { backgroundColor: color }]} />
+    </View>
+  );
+}
+
 export function Composer({
   value,
   onChangeText,
@@ -35,13 +55,15 @@ export function Composer({
   onMicEnd,
   children,
 }: ComposerProps) {
+  const [focused, setFocused] = useState(false);
+
   function submit() {
     if (!value.trim() || submitting) return;
     onSubmit();
   }
 
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, focused && styles.cardFocused]}>
       {children}
       <TextInput
         value={value}
@@ -52,34 +74,31 @@ export function Composer({
         autoCapitalize="sentences"
         autoCorrect
         editable={!submitting}
-        style={styles.input}
+        underlineColorAndroid="transparent"
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        style={[styles.input, webNoOutline]}
       />
       {attachLabel ? <Text style={styles.attachHint}>{attachLabel}</Text> : null}
       {hint ? <Text style={styles.hint}>{hint}</Text> : null}
       <View style={styles.toolbar}>
         <Pressable
           accessibilityRole="button"
+          accessibilityLabel="添加图片"
           onPress={onAttach}
           disabled={!onAttach}
           style={[styles.plus, { opacity: onAttach ? 1 : 0.45 }]}
-          hitSlop={8}
         >
           <Text style={styles.plusText}>+</Text>
         </Pressable>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="按住说话"
-          onPressIn={onMicStart}
-          onPressOut={onMicEnd}
-          disabled={!onMicStart}
-          style={[styles.mic, listening && styles.micLive, { opacity: onMicStart ? 1 : 0.45 }]}
-          hitSlop={8}
-        >
-          <Text style={[styles.micText, listening && styles.micTextLive]}>{listening ? '听' : '语音'}</Text>
-        </Pressable>
         {onModelPress ? (
-          <Pressable accessibilityRole="button" onPress={onModelPress} style={styles.model} hitSlop={8}>
-            <Text style={styles.modelText} numberOfLines={1}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="选择模型"
+            onPress={onModelPress}
+            style={styles.chip}
+          >
+            <Text style={styles.chipText} numberOfLines={1}>
               {modelLabel} ▾
             </Text>
           </Pressable>
@@ -89,6 +108,17 @@ export function Composer({
           </Text>
         )}
         <View style={{ flex: 1 }} />
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="按住说话"
+          onPressIn={onMicStart}
+          onPressOut={onMicEnd}
+          disabled={!onMicStart}
+          style={[styles.mic, listening && styles.micLive, { opacity: onMicStart ? 1 : 0.45 }]}
+          hitSlop={8}
+        >
+          <MicIcon color={listening ? colors.danger : colors.text} />
+        </Pressable>
         <Pressable
           accessibilityRole="button"
           onPress={submit}
@@ -106,20 +136,28 @@ const styles = StyleSheet.create({
     backgroundColor: colors.card,
     borderRadius: radius.lg,
     paddingHorizontal: spacing.md,
-    paddingTop: spacing.sm,
+    paddingTop: 12,
     paddingBottom: spacing.sm,
     borderWidth: 1,
     borderColor: colors.border,
     gap: 8,
+  },
+  cardFocused: {
+    borderColor: '#c8c8c2',
   },
   input: {
     minHeight: 72,
     maxHeight: 160,
     color: colors.text,
     fontSize: 16,
-    lineHeight: 22,
+    lineHeight: 24,
     textAlignVertical: 'top',
-    paddingTop: 6,
+    paddingTop: 2,
+    paddingBottom: 4,
+    paddingHorizontal: 0,
+    margin: 0,
+    borderWidth: 0,
+    backgroundColor: 'transparent',
   },
   attachHint: { color: colors.muted, fontSize: 12 },
   hint: { color: colors.muted, fontSize: 12, lineHeight: 16 },
@@ -133,21 +171,36 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   plusText: { color: colors.text, fontSize: 18, lineHeight: 20, fontWeight: '500' },
+  source: { alignSelf: 'flex-start', paddingVertical: 4, paddingRight: 12 },
+  sourceText: { color: colors.text, fontSize: 14, fontWeight: '600' },
+  chip: { maxWidth: 180, paddingVertical: 4, paddingHorizontal: 2 },
+  chipText: { color: colors.text, fontSize: 13, fontWeight: '500' },
+  modelLocked: { maxWidth: 140, color: colors.muted, fontSize: 13, fontWeight: '500' },
   mic: {
-    minWidth: 40,
-    height: 28,
-    borderRadius: 14,
-    paddingHorizontal: 8,
-    backgroundColor: colors.chip,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
   },
   micLive: { backgroundColor: '#fee2e2' },
-  micText: { color: colors.text, fontSize: 12, fontWeight: '600' },
-  micTextLive: { color: colors.danger },
-  model: { maxWidth: 160, paddingVertical: 4 },
-  modelText: { color: colors.text, fontSize: 13, fontWeight: '500' },
-  modelLocked: { maxWidth: 180, color: colors.muted, fontSize: 13, fontWeight: '500' },
+  micGlyph: { width: 16, height: 18, alignItems: 'center' },
+  micHead: {
+    width: 8,
+    height: 11,
+    borderRadius: 4,
+    borderWidth: 1.6,
+  },
+  micArc: {
+    width: 12,
+    height: 6,
+    marginTop: -1,
+    borderBottomLeftRadius: 7,
+    borderBottomRightRadius: 7,
+    borderWidth: 1.6,
+    borderTopWidth: 0,
+  },
+  micStem: { width: 1.6, height: 3, marginTop: 1, borderRadius: 1 },
   send: {
     width: 32,
     height: 32,

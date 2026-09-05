@@ -44,6 +44,7 @@ export interface AgentListItem {
   name: string;
   status: AgentStatus;
   env?: AgentEnv;
+  repos?: RepoInput[];
   url: string;
   createdAt: string;
   updatedAt: string;
@@ -51,7 +52,6 @@ export interface AgentListItem {
 }
 
 export interface Agent extends AgentListItem {
-  repos?: RepoInput[];
   workOnCurrentBranch?: boolean;
   autoCreatePR?: boolean;
 }
@@ -60,6 +60,19 @@ export interface GitBranch {
   repoUrl: string;
   branch?: string;
   prUrl?: string;
+}
+
+export type ConversationMessageType = 'user_message' | 'assistant_message';
+
+export interface ConversationMessage {
+  id: string;
+  type: ConversationMessageType | string;
+  text: string;
+}
+
+export interface AgentConversation {
+  id: string;
+  messages: ConversationMessage[];
 }
 
 export interface Run {
@@ -71,6 +84,8 @@ export interface Run {
   durationMs?: number;
   result?: string;
   git?: { branches: GitBranch[] };
+  additions?: number;
+  deletions?: number;
 }
 
 export interface Paginated<T> {
