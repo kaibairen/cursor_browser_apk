@@ -321,7 +321,8 @@ export function useArtifactMedia(agentId: string, path: string) {
   return useQuery({
     queryKey: ['artifact-media', agentId, path],
     enabled: Boolean(apiKey && agentId && path && kind),
-    staleTime: 10 * 60 * 1000,
+    staleTime: 8 * 60 * 1000,
+    refetchInterval: 8 * 60 * 1000,
     queryFn: async () => {
       if (!kind) {
         throw new Error('不是可预览的媒体');
