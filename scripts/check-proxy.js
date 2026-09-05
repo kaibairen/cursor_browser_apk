@@ -35,4 +35,9 @@ const boom = writeSseChunk(
 );
 if (boom) throw new Error('throwing write should be swallowed');
 
+const { watchClientAbort } = require('./cursor-api-proxy');
+if (typeof watchClientAbort !== 'function') {
+  throw new Error('watchClientAbort should be exported');
+}
+
 console.log('proxy helpers ok');

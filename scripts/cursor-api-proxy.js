@@ -39,11 +39,12 @@ function destroyQuietly(stream) {
 }
 
 function watchClientAbort(req, res, abort) {
-  const once = () => abort();
-  req.on('aborted', once);
-  req.on('close', once);
-  res.on('close', once);
-  res.on('error', once);
+  const onAbort = () => abort();
+  req.on('aborted', onAbort);
+  res.on('error', onAbort);
+  res.on('close', () => {
+    if (!res.writableFinished) abort();
+  });
 }
 
 function isAllowedArtifactHost(hostname) {
@@ -322,4 +323,4 @@ function attachCursorApiProxy(metroMiddleware) {
   };
 }
 
-module.exports = { attachCursorApiProxy, PREFIX, writeSseChunk };
+module.exports = { attachCursorApiProxy, PREFIX, writeSseChunk, watchClientAbort };
