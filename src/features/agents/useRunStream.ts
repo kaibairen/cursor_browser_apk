@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { openRunStream } from '../../lib/cursor/sse';
 import { applySseEvent, ensureThinkingLine, type TranscriptLine } from '../../lib/cursor/sseApply';
-import { prepareBurst, replayDelayMs, type StreamPhase, eventPhase } from '../../lib/cursor/ssePace';
+import { prepareBurst, replayDelayMs } from '../../lib/cursor/ssePace';
 import type { SseEvent } from '../../lib/cursor/sseParse';
 import { CursorApiError } from '../../lib/cursor/errors';
 import { isTerminalRun, type Run, type RunStatus } from '../../lib/cursor/types';
@@ -10,20 +10,10 @@ import { useAuth, useOptionalApiKey } from '../auth/AuthContext';
 
 export type { TranscriptLine };
 
-const RETRY_MS = [150, 280, 450, 700, 1100, 1600, 2200, 3200];
+const RETRY_MS = [80, 160, 280, 450, 700];
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function nextFrame(): Promise<void> {
-  return new Promise((resolve) => {
-    if (typeof requestAnimationFrame === 'function') {
-      requestAnimationFrame(() => resolve());
-      return;
-    }
-    setTimeout(resolve, 16);
-  });
 }
 
 export function useRunStream(agentId: string, runId: string | undefined, runStatus?: RunStatus) {
@@ -155,9 +145,15 @@ export function useRunStream(agentId: string, runId: string | undefined, runStat
       if (pumping.current) return;
       pumping.current = true;
       setRevealing(true);
+      let previous: SseEvent | undefined;
       while (queueRef.current.length && !stopped.current) {
         const event = queueRef.current.shift();
         if (!event) break;
+        if (burstRef.current) {
+          const wait = replayDelayMs(event, previous);
+          if (wait > 0) await sleep(wait);
+        }
+        previous = event;
         const result = applyOne(event);
         if (result.retry) {
           lastEventId.current = undefined;
@@ -184,16 +180,7 @@ export function useRunStream(agentId: string, runId: string | undefined, runStat
           );
           void queryClient.invalidateQueries({ queryKey: ['run', agentId, runId] });
           void queryClient.invalidateQueries({ queryKey: ['agent', agentId] });
-          void queryClient.invalidateQueries({ queryKey: ['conversation', agentId] });
           break;
-        }
-        const phase: StreamPhase = eventPhase(event);
-        if (burstRef.current) {
-          const wait = replayDelayMs(event);
-          if (wait > 0) await sleep(wait);
-          else if (phase !== 'meta') await nextFrame();
-        } else if (queueRef.current.length) {
-          await nextFrame();
         }
       }
       if (!queueRef.current.length) burstRef.current = false;
@@ -214,7 +201,10 @@ export function useRunStream(agentId: string, runId: string | undefined, runStat
           return;
         }
       }
-      const wait = RETRY_MS[Math.min(retries.current, RETRY_MS.length - 1)] ?? 3200;
+      const wait =
+        status && isTerminalRun(status)
+          ? 80
+          : (RETRY_MS[Math.min(retries.current, RETRY_MS.length - 1)] ?? 700);
       retries.current += 1;
       retryTimer.current = setTimeout(() => {
         retryTimer.current = null;

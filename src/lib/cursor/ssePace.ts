@@ -35,60 +35,22 @@ export function eventPhase(event: SseEvent): StreamPhase {
   return 'meta';
 }
 
-export function replayDelayMs(event: SseEvent): number {
-  const phase = eventPhase(event);
-  if (phase === 'end' || phase === 'meta' || phase === 'retry') return 0;
-  if (event.event === 'interaction_update') {
-    const type = String(readSseJson(event.data)?.type ?? '');
-    if (type === 'thinking-completed') return 320;
-  }
-  if (phase === 'thinking') return 28;
-  if (phase === 'assistant') return 22;
-  if (phase === 'tool') return 90;
-  return 16;
-}
-
-function textOf(event: SseEvent): string {
-  const payload = readSseJson(event.data);
-  return typeof payload?.text === 'string' ? payload.text : '';
-}
-
-function withText(event: SseEvent, text: string, keepId: boolean): SseEvent {
-  const payload = readSseJson(event.data) ?? {};
-  return {
-    event: event.event,
-    data: JSON.stringify({ ...payload, text }),
-    id: keepId ? event.id : undefined,
-  };
-}
-
-export function expandTextEvent(event: SseEvent): SseEvent[] {
-  const phase = eventPhase(event);
-  if (phase !== 'thinking' && phase !== 'assistant') return [event];
-  if (event.event === 'interaction_update') {
-    const type = String(readSseJson(event.data)?.type ?? '');
-    if (type === 'thinking-completed') return [event];
-  }
-  const text = textOf(event);
-  if (text.length <= 6) return [event];
-  const size = text.length > 120 ? 5 : text.length > 40 ? 3 : 2;
-  const chunks: SseEvent[] = [];
-  for (let index = 0; index < text.length; index += size) {
-    chunks.push(withText(event, text.slice(index, index + size), index === 0));
-  }
-  return chunks;
+export function replayDelayMs(event: SseEvent, previous?: SseEvent): number {
+  if (!previous) return 0;
+  const from = eventPhase(previous);
+  const to = eventPhase(event);
+  if (from === 'thinking' && to === 'assistant') return 16;
+  return 0;
 }
 
 export function prepareBurst(events: SseEvent[]): SseEvent[] {
   const hasThinking = events.some((event) => event.event === 'thinking');
   const hasAssistant = events.some((event) => event.event === 'assistant');
-  return events
-    .filter((event) => {
-      if (event.event !== 'interaction_update') return true;
-      const type = String(readSseJson(event.data)?.type ?? '');
-      if (hasThinking && (type === 'thinking-delta' || type === 'thinking')) return false;
-      if (hasAssistant && (type === 'text-delta' || type === 'assistant')) return false;
-      return true;
-    })
-    .flatMap(expandTextEvent);
+  return events.filter((event) => {
+    if (event.event !== 'interaction_update') return true;
+    const type = String(readSseJson(event.data)?.type ?? '');
+    if (hasThinking && (type === 'thinking-delta' || type === 'thinking')) return false;
+    if (hasAssistant && (type === 'text-delta' || type === 'assistant')) return false;
+    return true;
+  });
 }

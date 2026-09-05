@@ -4,6 +4,20 @@ export function isUserMessage(item: ConversationMessage): boolean {
   return /user/i.test(item.type);
 }
 
+export function lastUserIndex(messages: ConversationMessage[]): number {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (isUserMessage(messages[index]!)) return index;
+  }
+  return -1;
+}
+
+export function lastAssistantAfter(messages: ConversationMessage[], userIndex: number): number {
+  for (let index = messages.length - 1; index > userIndex; index -= 1) {
+    if (!isUserMessage(messages[index]!)) return index;
+  }
+  return -1;
+}
+
 export function isLocalUserId(id: string): boolean {
   return id.startsWith('local-user:') || id.startsWith('local-user-') || id.startsWith('pending-');
 }

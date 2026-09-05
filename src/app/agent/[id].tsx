@@ -40,6 +40,8 @@ import { colors, spacing } from '../../theme';
 import {
   countUserTexts,
   isUserMessage,
+  lastAssistantAfter,
+  lastUserIndex,
   mergePreservingLocalUsers,
 } from '../../features/agents/conversationView';
 import { ArtifactViewer, type ArtifactView } from '../../ui/artifactViewer';
@@ -54,6 +56,7 @@ import { ActionSheet } from '../../ui/sheet';
 import { useVoiceInput } from '../../features/speech/useVoiceInput';
 import { modelDisplayName, resolveStoredModelId } from '../../features/agents/models';
 import { loadPrefs, rememberAgentModel } from '../../storage/prefs';
+import { useQueryClient } from '@tanstack/react-query';
 
 export default function AgentDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -78,6 +81,7 @@ export default function AgentDetailScreen() {
   const artifacts = useArtifacts(agentId);
   const download = useDownloadArtifact(agentId);
   const models = useModels();
+  const queryClient = useQueryClient();
 
   const [tab, setTab] = useState<'chat' | 'diff'>('chat');
   const [prompt, setPrompt] = useState('');
@@ -149,6 +153,18 @@ export default function AgentDetailScreen() {
   }, [live, followUp.isPending, stream.lines, conversation.data?.messages?.length, pendingUsers.length]);
 
   useEffect(() => {
+    const stored = queryClient.getQueryData<{ text: string; durationMs?: number }>(['thinking', agentId]);
+    setKeptThinking(stored ?? null);
+    thinkingStarted.current = stored ? thinkingStarted.current ?? Date.now() : null;
+  }, [agentId, queryClient]);
+
+  useEffect(() => {
+    if (!run || isTerminalRun(run.status)) return;
+    thinkingStarted.current = thinkingStarted.current ?? Date.now();
+    setKeptThinking((current) => current ?? { text: '' });
+  }, [run, run?.id, run?.status]);
+
+  useEffect(() => {
     const thinking = [...stream.lines].reverse().find((line) => line.kind === 'thinking');
     if (!thinking || thinking.kind !== 'thinking') return;
     const durationMs =
@@ -156,6 +172,18 @@ export default function AgentDetailScreen() {
       (thinking.done && thinkingStarted.current ? Date.now() - thinkingStarted.current : undefined);
     setKeptThinking({ text: thinking.text, durationMs });
   }, [stream.lines]);
+
+  useEffect(() => {
+    if (live || followUp.isPending || !keptThinking || keptThinking.durationMs != null) return;
+    if (!thinkingStarted.current) return;
+    const durationMs = Date.now() - thinkingStarted.current;
+    setKeptThinking((current) => (current ? { ...current, durationMs } : current));
+  }, [followUp.isPending, keptThinking, live]);
+
+  useEffect(() => {
+    if (!keptThinking || !agentId) return;
+    queryClient.setQueryData(['thinking', agentId], keptThinking);
+  }, [agentId, keptThinking, queryClient]);
 
   const usageText = useMemo(() => {
     if (!usage.data) return '还没拉到用量。';
@@ -258,7 +286,10 @@ export default function AgentDetailScreen() {
     Boolean(keptThinking) ||
     waitingForFirstToken ||
     streamThinking?.kind === 'thinking' ||
-    (stream.live && hasUser);
+    (stream.live && hasUser) ||
+    followUp.isPending;
+  const latestUserIndex = lastUserIndex(history);
+  const latestAssistantIndex = lastAssistantAfter(history, latestUserIndex);
   const chatEmpty =
     !showChatSpinner && conversationReady && history.length === 0 && stream.lines.length === 0 && !run?.result;
   const showResultFallback =
@@ -324,16 +355,59 @@ export default function AgentDetailScreen() {
               ) : null}
               {!showChatSpinner
                 ? history.map((item, index) => {
-                    const skipTrailingAssistant =
-                      Boolean(streamAssistant) && !isUserMessage(item) && index === history.length - 1;
-                    if (skipTrailingAssistant) return null;
+                    const hideHistoryAssistant =
+                      Boolean(streamAssistant) && !isUserMessage(item) && index === latestAssistantIndex;
+                    if (hideHistoryAssistant) return null;
                     if (isUserMessage(item)) {
-                      return <UserBubble key={`u:${index}:${item.text}`} text={item.text} />;
+                      return (
+                        <View key={`u:${index}:${item.text}`} style={styles.turn}>
+                          <UserBubble text={item.text} />
+                          {index === latestUserIndex && showThinking ? (
+                            <ThinkingBlock
+                              text={
+                                streamThinking?.kind === 'thinking' && streamThinking.text
+                                  ? streamThinking.text
+                                  : (keptThinking?.text ?? '')
+                              }
+                              done={thinkingDone && !thinkingBusy}
+                              durationMs={
+                                streamThinking?.kind === 'thinking'
+                                  ? streamThinking.durationMs
+                                  : keptThinking?.durationMs
+                              }
+                              defaultOpen={!thinkingDone || thinkingBusy}
+                            />
+                          ) : null}
+                          {index === latestUserIndex
+                            ? streamTools.map((line, toolIndex) =>
+                                line.kind === 'tool' ? (
+                                  <Text key={`${line.callId}-${toolIndex}`} style={styles.tool}>
+                                    {toolLabel(line.name)}
+                                    {line.status === 'completed' ? ' · 完成' : '…'}
+                                  </Text>
+                                ) : null,
+                              )
+                            : null}
+                          {index === latestUserIndex &&
+                          !thinkingBusy &&
+                          streamAssistant &&
+                          streamAssistant.kind === 'assistant' ? (
+                            stream.live ? (
+                              <Text style={styles.liveText}>
+                                {streamAssistant.text}
+                                <Text style={styles.caret}>▍</Text>
+                              </Text>
+                            ) : (
+                              <ChatText text={streamAssistant.text} />
+                            )
+                          ) : null}
+                        </View>
+                      );
                     }
                     return <ChatText key={`a:${index}:${item.id}`} text={item.text} />;
                   })
                 : null}
-              {!showChatSpinner && showThinking ? (
+              {!showChatSpinner && latestUserIndex < 0 && showThinking ? (
                 <ThinkingBlock
                   text={
                     streamThinking?.kind === 'thinking' && streamThinking.text
@@ -349,17 +423,7 @@ export default function AgentDetailScreen() {
                   defaultOpen={!thinkingDone || thinkingBusy}
                 />
               ) : null}
-              {!showChatSpinner
-                ? streamTools.map((line, index) =>
-                    line.kind === 'tool' ? (
-                      <Text key={`${line.callId}-${index}`} style={styles.tool}>
-                        {toolLabel(line.name)}
-                        {line.status === 'completed' ? ' · 完成' : '…'}
-                      </Text>
-                    ) : null,
-                  )
-                : null}
-              {!showChatSpinner && !thinkingBusy && streamAssistant && streamAssistant.kind === 'assistant' ? (
+              {!showChatSpinner && latestUserIndex < 0 && !thinkingBusy && streamAssistant && streamAssistant.kind === 'assistant' ? (
                 stream.live ? (
                   <Text style={styles.liveText}>
                     {streamAssistant.text}
@@ -536,6 +600,7 @@ const styles = StyleSheet.create({
   tabs: { paddingHorizontal: spacing.md, paddingBottom: 8 },
   content: { paddingHorizontal: spacing.lg, paddingBottom: 24 },
   chat: { gap: 14, paddingTop: 8 },
+  turn: { gap: 14 },
   liveText: { color: colors.text, fontSize: 16, lineHeight: 24 },
   caret: { color: colors.muted, fontSize: 16, lineHeight: 24 },
   tool: { color: colors.muted, fontSize: 13 },

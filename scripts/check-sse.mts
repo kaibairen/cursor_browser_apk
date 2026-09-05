@@ -1,6 +1,6 @@
 import { consumeSseBuffer, parseSseBlock } from '../src/lib/cursor/sseParse.ts';
 import { applySseEvent, ensureThinkingLine, type TranscriptLine } from '../src/lib/cursor/sseApply.ts';
-import { isLocalUserId, mergePreservingLocalUsers, seedUserMessage } from '../src/features/agents/conversationView.ts';
+import { isLocalUserId, lastAssistantAfter, lastUserIndex, mergePreservingLocalUsers, seedUserMessage } from '../src/features/agents/conversationView.ts';
 import { eventPhase, prepareBurst, replayDelayMs } from '../src/lib/cursor/ssePace.ts';
 import { defaultCatalogModelId, resolveStoredModelId } from '../src/features/agents/models.ts';
 import { readModelId } from '../src/lib/cursor/modelId.ts';
@@ -146,14 +146,23 @@ if (burst.some((event) => event.event === 'interaction_update' && event.data.inc
 if (burst.some((event) => event.event === 'interaction_update' && event.data.includes('text-delta'))) {
   throw new Error('burst should drop paired text-delta');
 }
-if (burst.filter((event) => event.event === 'thinking').length < 2) {
-  throw new Error('long thinking should be split for replay');
+if (burst.filter((event) => event.event === 'thinking').length !== 1) {
+  throw new Error('burst should keep one official thinking event');
 }
-if (burst.filter((event) => event.event === 'assistant').length < 2) {
-  throw new Error('long assistant should be split for replay');
+if (burst.filter((event) => event.event === 'assistant').length !== 1) {
+  throw new Error('burst should keep one official assistant event');
 }
-if (replayDelayMs({ event: 'interaction_update', data: '{"type":"thinking-completed"}' }) < 200) {
-  throw new Error('thinking-completed should pause before the reply');
+if (replayDelayMs({ event: 'assistant', data: '{"text":"x"}' }, { event: 'thinking', data: '{"text":"y"}' }) !== 16) {
+  throw new Error('only a one-frame gap between thinking and assistant');
+}
+if (replayDelayMs({ event: 'assistant', data: '{"text":"x"}' }) !== 0) {
+  throw new Error('live assistant should not be delayed');
+}
+if (lastUserIndex([{ id: '1', type: 'user_message', text: 'hi' }, { id: '2', type: 'assistant_message', text: 'yo' }]) !== 0) {
+  throw new Error('lastUserIndex failed');
+}
+if (lastAssistantAfter([{ id: '1', type: 'user_message', text: 'hi' }, { id: '2', type: 'assistant_message', text: 'yo' }], 0) !== 1) {
+  throw new Error('lastAssistantAfter failed');
 }
 if (eventPhase({ event: 'thinking', data: '{"text":"x"}' }) !== 'thinking') {
   throw new Error('thinking phase');
