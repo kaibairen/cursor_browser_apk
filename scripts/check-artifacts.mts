@@ -44,20 +44,35 @@ if (pieces[1]?.type !== 'media' || pieces[1].kind !== 'image' || pieces[1].url !
 if (pieces[3]?.type !== 'media' || pieces[3].kind !== 'video') throw new Error('video markdown');
 
 const items: Artifact[] = [
-  { path: 'artifacts/preview-chat.png', sizeBytes: 100, updatedAt: '' },
-  { path: 'artifacts/user-bubble-immediate-send.mp4', sizeBytes: 200, updatedAt: '' },
-  { path: 'artifacts/notes.md', sizeBytes: 12, updatedAt: '' },
+  { path: 'artifacts/preview-chat.png', sizeBytes: 100, updatedAt: '2026-01-01T00:10:00.000Z' },
+  { path: 'artifacts/user-bubble-immediate-send.mp4', sizeBytes: 200, updatedAt: '2026-01-01T01:20:00.000Z' },
+  { path: 'artifacts/notes.md', sizeBytes: 12, updatedAt: '2026-01-01T00:11:00.000Z' },
 ];
 const messages: ConversationMessage[] = [
-  { id: 'u', type: 'user_message', text: '看截图' },
-  { id: 'a', type: 'assistant_message', text: '截图在 preview-chat.png' },
+  { id: 'u1', type: 'user_message', text: '先看截图' },
+  { id: 'a1', type: 'assistant_message', text: '见图 preview-chat.png' },
+  { id: 'u2', type: 'user_message', text: '再录一段' },
+  { id: 'a2', type: 'assistant_message', text: '好了' },
 ];
-const assigned = assignChatMedia(items, messages);
-if (assigned.byIndex[1]?.[0]?.path !== 'artifacts/preview-chat.png') {
-  throw new Error('mentioned image should sit under that assistant turn');
+const assigned = assignChatMedia(items, messages, [
+  { createdAt: '2026-01-01T00:00:00.000Z' },
+  { createdAt: '2026-01-01T01:00:00.000Z' },
+]);
+if (assigned.byUserIndex[0]?.some((item) => item.path.endsWith('preview-chat.png')) !== true) {
+  throw new Error('screenshot should sit with the first user turn');
 }
-if (assigned.leftover.length !== 1 || assigned.leftover[0]?.path !== 'artifacts/user-bubble-immediate-send.mp4') {
-  throw new Error('unmentioned video should remain leftover for the chat stack');
+if (assigned.byUserIndex[2]?.some((item) => item.path.endsWith('.mp4')) !== true) {
+  throw new Error('mp4 should sit with the follow-up that produced it');
+}
+if (assigned.orphan.length) throw new Error('dated media should not be orphaned');
+
+const undated = assignChatMedia(
+  [{ path: 'artifacts/late.mp4', sizeBytes: 3, updatedAt: '' }],
+  messages,
+  [],
+);
+if (undated.byUserIndex[2]?.[0]?.path !== 'artifacts/late.mp4') {
+  throw new Error('undated leftover video should stay on the latest turn, not a detached footer');
 }
 
 console.log('artifact helpers ok');

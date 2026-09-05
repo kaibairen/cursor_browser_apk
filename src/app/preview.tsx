@@ -164,7 +164,11 @@ export default function PreviewScreen() {
                 <View key={`${index}-${item.user}`} style={{ gap: 14 }}>
                   <UserBubble text={item.user} />
                   {index === 0 ? (
-                    <TurnTimeline lines={EXAMPLE_TOOLS} thinkingDone />
+                    <>
+                      <TurnTimeline lines={EXAMPLE_TOOLS} thinkingDone />
+                      <MediaBlock kind="image" uri={DEMO_IMAGE_URL} caption="preview-home.png" />
+                      <MediaBlock kind="video" uri={DEMO_VIDEO_URL} caption="user-bubble-immediate-send.mp4" />
+                    </>
                   ) : (
                     <>
                       {item.thinking ? (
@@ -180,8 +184,6 @@ export default function PreviewScreen() {
                   )}
                 </View>
               ))}
-              <MediaBlock kind="image" uri={DEMO_IMAGE_URL} caption="preview-home.png" />
-              <MediaBlock kind="video" uri={DEMO_VIDEO_URL} caption="user-bubble-immediate-send.mp4" />
               {turn.waiting || (!thread[thread.length - 1]?.reply && (turn.thinking || turn.reply)) ? (
                 <>
                   <ThinkingBlock

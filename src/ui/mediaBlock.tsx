@@ -1,3 +1,4 @@
+import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { ArtifactMediaKind } from '../lib/cursor/artifactPath';
@@ -21,7 +22,9 @@ export function MediaBlock({
           <Image source={{ uri }} style={styles.image} resizeMode="contain" />
         </Pressable>
       ) : (
-        <InlineVideo key={uri} uri={uri} />
+        <MediaErrorBoundary>
+          <InlineVideo key={uri} uri={uri} />
+        </MediaErrorBoundary>
       )}
       {caption ? <Text style={styles.caption}>{caption}</Text> : null}
     </View>
@@ -35,6 +38,25 @@ export function MediaPlaceholder({ label }: { label: string }) {
       <Text style={styles.caption}>{label}</Text>
     </View>
   );
+}
+
+class MediaErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+
+  static getDerivedStateFromError(): { failed: boolean } {
+    return { failed: true };
+  }
+
+  componentDidCatch(_error: Error, _info: ErrorInfo): void {
+    // Keep thinking / tool rows on screen if a player fails to mount.
+  }
+
+  render(): ReactNode {
+    if (this.state.failed) {
+      return <Text style={styles.caption}>视频没法在这一页播放</Text>;
+    }
+    return this.props.children;
+  }
 }
 
 function InlineVideo({ uri }: { uri: string }) {

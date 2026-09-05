@@ -26,6 +26,7 @@ import {
   useDownloadArtifact,
   useModels,
   useRun,
+  useRuns,
   useUsage,
 } from '../../features/agents/queries';
 import { useRunStream } from '../../features/agents/useRunStream';
@@ -35,7 +36,7 @@ import {
   isTextArtifactPath,
   playbackUri,
 } from '../../lib/cursor/client';
-import { artifactMediaKind, assignChatMedia } from '../../lib/cursor/artifactPath';
+import { artifactMediaKind, assignChatMedia, ownerUserIndex } from '../../lib/cursor/artifactPath';
 import { isTerminalRun, type ConversationMessage } from '../../lib/cursor/types';
 import { formatBytes } from '../../lib/format';
 import { colors, spacing } from '../../theme';
@@ -85,6 +86,7 @@ export default function AgentDetailScreen() {
   const remove = useDeleteAgent();
   const usage = useUsage(agentId);
   const artifacts = useArtifacts(agentId, { live });
+  const runs = useRuns(agentId);
   const download = useDownloadArtifact(agentId);
   const models = useModels();
   const queryClient = useQueryClient();
@@ -156,7 +158,7 @@ export default function AgentDetailScreen() {
   }, [agentId, agent?.model?.id, run?.model?.id, modelId, models.data?.items]);
 
   useEffect(() => {
-    if (!(live || followUp.isPending || stream.lines.length)) return;
+    if (!(live || followUp.isPending)) return;
     scrollRef.current?.scrollToEnd({ animated: false });
   }, [live, followUp.isPending, stream.lines, conversation.data?.messages?.length, pendingUsers.length]);
 
@@ -342,10 +344,7 @@ export default function AgentDetailScreen() {
     { id: 'delete', label: '删除', hint: '删掉后不能恢复', destructive: true },
   ];
   const pendingById = new Map(pendingUsers.map((item) => [item.id, item]));
-  const chatMedia = assignChatMedia(artifacts.data?.items ?? [], history);
-  const hiddenAssistantMedia =
-    streamAssistant && latestAssistantIndex >= 0 ? (chatMedia.byIndex[latestAssistantIndex] ?? []) : [];
-  const leftoverMedia = [...chatMedia.leftover, ...hiddenAssistantMedia];
+  const chatMedia = assignChatMedia(artifacts.data?.items ?? [], history, runs.data?.items ?? []);
 
   return (
     <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -406,6 +405,15 @@ export default function AgentDetailScreen() {
                       Boolean(streamAssistant) && !isUserMessage(item) && index === latestAssistantIndex;
                     if (hideHistoryAssistant) return null;
                     if (isUserMessage(item)) {
+                      const next = history[index + 1];
+                      const nextIsHiddenAssistant =
+                        Boolean(next) &&
+                        !isUserMessage(next) &&
+                        Boolean(streamAssistant) &&
+                        index + 1 === latestAssistantIndex;
+                      const showMediaHere =
+                        (!next || isUserMessage(next) || nextIsHiddenAssistant) &&
+                        !(showResultFallback && index === latestUserIndex);
                       return (
                         <View key={`u:${index}:${item.text}`} style={styles.turn}>
                           <UserBubble text={item.text} images={pendingById.get(item.id)?.images} />
@@ -417,34 +425,53 @@ export default function AgentDetailScreen() {
                               thinkingDone={thinkingDone && !thinkingBusy}
                             />
                           ) : null}
+                          {showMediaHere ? (
+                            <ChatArtifactMedia
+                              agentId={agentId ?? ''}
+                              items={chatMedia.byUserIndex[index] ?? []}
+                              onOpen={(path) => void openArtifact(path)}
+                            />
+                          ) : null}
                         </View>
                       );
                     }
+                    const owner = ownerUserIndex(history, index);
+                    const next = history[index + 1];
+                    const showMediaHere = !next || isUserMessage(next);
                     return (
                       <View key={`a:${index}:${item.id}`} style={styles.turn}>
                         <ChatText text={item.text} />
-                        <ChatArtifactMedia
-                          agentId={agentId ?? ''}
-                          items={chatMedia.byIndex[index] ?? []}
-                          onOpen={(path) => void openArtifact(path)}
-                        />
+                        {showMediaHere ? (
+                          <ChatArtifactMedia
+                            agentId={agentId ?? ''}
+                            items={chatMedia.byUserIndex[owner] ?? []}
+                            onOpen={(path) => void openArtifact(path)}
+                          />
+                        ) : null}
                       </View>
                     );
                   })
                 : null}
               {!showChatSpinner && latestUserIndex < 0 ? (
-                <TurnTimeline
-                  lines={stream.lines}
-                  keptThinking={showThinking ? keptThinking : null}
-                  live={stream.live && !runDone}
-                  thinkingDone={thinkingDone && !thinkingBusy}
-                />
+                <>
+                  <TurnTimeline
+                    lines={stream.lines}
+                    keptThinking={showThinking ? keptThinking : null}
+                    live={stream.live && !runDone}
+                    thinkingDone={thinkingDone && !thinkingBusy}
+                  />
+                  <ChatArtifactMedia
+                    agentId={agentId ?? ''}
+                    items={chatMedia.orphan}
+                    onOpen={(path) => void openArtifact(path)}
+                  />
+                </>
               ) : null}
               {!showChatSpinner && showResultFallback && run?.result ? <ChatText text={run.result} /> : null}
-              {!showChatSpinner ? (
+              {!showChatSpinner && showResultFallback && latestUserIndex >= 0 ? (
                 <ChatArtifactMedia
                   agentId={agentId ?? ''}
-                  items={leftoverMedia}
+                  items={chatMedia.byUserIndex[latestUserIndex] ?? []}
                   onOpen={(path) => void openArtifact(path)}
                 />
               ) : null}

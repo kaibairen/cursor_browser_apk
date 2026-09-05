@@ -1,9 +1,8 @@
 import type { ReactNode } from 'react';
-import { Linking, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, Linking, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { ArtifactMediaKind } from '../lib/cursor/artifactPath';
 import { splitMarkdownMedia } from '../lib/cursor/artifactPath';
-import { colors } from '../theme';
-import { MediaBlock } from './mediaBlock';
+import { colors, radius } from '../theme';
 
 type MdBlock =
   | { type: 'heading'; level: 1 | 2 | 3; text: string }
@@ -64,7 +63,19 @@ function RenderBlock({ block }: { block: MdBlock }) {
     case 'p':
       return <Text style={styles.body}>{renderInline(block.text)}</Text>;
     case 'media':
-      return <MediaBlock kind={block.kind} uri={block.url} caption={block.alt || undefined} />;
+      if (block.kind === 'video') {
+        return (
+          <Text style={styles.link} onPress={() => void Linking.openURL(block.url)}>
+            {block.alt || block.url}
+          </Text>
+        );
+      }
+      return (
+        <View style={styles.media}>
+          <Image source={{ uri: block.url }} style={styles.image} resizeMode="contain" />
+          {block.alt ? <Text style={styles.mediaCaption}>{block.alt}</Text> : null}
+        </View>
+      );
   }
 }
 
@@ -268,4 +279,13 @@ const styles = StyleSheet.create({
   },
   bold: { fontWeight: '700' },
   link: { color: colors.link },
+  media: { gap: 6 },
+  image: {
+    width: '100%',
+    minHeight: 180,
+    maxHeight: 420,
+    borderRadius: radius.md,
+    backgroundColor: colors.chip,
+  },
+  mediaCaption: { color: colors.muted, fontSize: 13, lineHeight: 18 },
 });
