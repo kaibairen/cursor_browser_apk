@@ -38,6 +38,7 @@ export function useRunStream(agentId: string, runId: string | undefined, runStat
   const burstRef = useRef(false);
   const stopped = useRef(false);
   const statusRef = useRef(runStatus);
+  const prevStatus = useRef<RunStatus | undefined>(undefined);
 
   statusRef.current = runStatus;
   const runDone = Boolean(runStatus && isTerminalRun(runStatus));
@@ -47,34 +48,49 @@ export function useRunStream(agentId: string, runId: string | undefined, runStat
   );
 
   useEffect(() => {
-    linesRef.current = [];
-    setLines([]);
+    const stored = runId
+      ? (queryClient.getQueryData<TranscriptLine[]>(['transcript', agentId, runId]) ?? [])
+      : [];
+    linesRef.current = stored;
+    setLines(stored);
     setStreamError(null);
     setUsePolling(false);
     setEnded(false);
     setRevealing(false);
     setRetryNonce(0);
     lastEventId.current = undefined;
-    simplified.current = { assistant: false, thinking: false };
+    simplified.current = {
+      assistant: stored.some((line) => line.kind === 'assistant'),
+      thinking: stored.some((line) => line.kind === 'thinking'),
+    };
     pendingRetry.current = false;
     retries.current = 0;
     queueRef.current = [];
     pumping.current = false;
     burstRef.current = false;
     stopped.current = false;
+    prevStatus.current = undefined;
     if (retryTimer.current) {
       clearTimeout(retryTimer.current);
       retryTimer.current = null;
     }
-  }, [runId]);
+  }, [agentId, queryClient, runId]);
 
   useEffect(() => {
+    if (!runId || !lines.length) return;
+    queryClient.setQueryData(['transcript', agentId, runId], lines);
+  }, [agentId, lines, queryClient, runId]);
+
+  useEffect(() => {
+    const previous = prevStatus.current;
+    prevStatus.current = runStatus;
     if (!runStatus || !isTerminalRun(runStatus)) return;
     stopped.current = true;
     queueRef.current = [];
     burstRef.current = false;
     setRevealing(false);
     setEnded(true);
+    if (!previous || isTerminalRun(previous)) return;
     void queryClient.invalidateQueries({ queryKey: ['conversation', agentId] });
     void queryClient.invalidateQueries({ queryKey: ['artifacts', agentId] });
     void queryClient.invalidateQueries({ queryKey: ['runs', agentId] });

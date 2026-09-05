@@ -387,12 +387,11 @@ export default function AgentDetailScreen() {
         >
           {tab === 'chat' ? (
             <View style={styles.chat}>
-              {showChatSpinner ? <ChatLoading label="加载对话…" /> : null}
+              {showChatSpinner && stream.lines.length === 0 && !keptThinking ? (
+                <ChatLoading label="加载对话…" />
+              ) : null}
               {proxyDown ? (
                 <Text style={styles.meta}>网页代理断了，正在重连。连上后会一次拉齐已完成的回复。</Text>
-              ) : null}
-              {runDone && conversation.isFetching && !streamAssistant && !history.some((item) => !isUserMessage(item)) ? (
-                <Text style={styles.meta}>正在拉取已完成的回复…</Text>
               ) : null}
               {agentRefreshError ? <Text style={styles.error}>{agentRefreshError}</Text> : null}
               {conversationError ? <Text style={styles.error}>{conversationError}</Text> : null}
@@ -454,7 +453,8 @@ export default function AgentDetailScreen() {
                     );
                   })
                 : null}
-              {!showChatSpinner && latestUserIndex < 0 ? (
+              {(!showChatSpinner && latestUserIndex < 0) ||
+              (showChatSpinner && (stream.lines.length > 0 || Boolean(keptThinking))) ? (
                 <>
                   <TurnTimeline
                     lines={stream.lines}
