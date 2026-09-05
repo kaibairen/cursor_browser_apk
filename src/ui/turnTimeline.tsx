@@ -1,9 +1,9 @@
-import { StyleSheet, Text } from 'react-native';
-import { toolCaption } from '../features/agents/toolCaption';
+import { StyleSheet, Text, View } from 'react-native';
 import type { TranscriptLine } from '../lib/cursor/sseApply';
 import { colors } from '../theme';
 import { ChatText } from './chatText';
 import { ThinkingBlock } from './thinkingBlock';
+import { ToolRow } from './toolRow';
 
 export function TurnTimeline({
   lines,
@@ -31,43 +31,75 @@ export function TurnTimeline({
           defaultOpen={!thinkingDone}
         />
       ) : null}
-      {lines.map((line, index) => {
-        if (line.kind === 'thinking') {
-          return (
-            <ThinkingBlock
-              key={`think:${index}`}
-              text={line.text}
-              done={Boolean(thinkingDone || line.done)}
-              durationMs={line.durationMs}
-              defaultOpen={!line.done && !thinkingDone}
-            />
-          );
-        }
-        if (line.kind === 'tool') {
-          return (
-            <Text key={`${line.callId}-${index}`} style={styles.tool}>
-              {toolCaption(line.name, line.args)}
-              {line.status === 'completed' ? '' : ' …'}
-            </Text>
-          );
-        }
-        if (!line.text) return null;
-        if (live && index === lastAssistantAt) {
-          return (
-            <Text key={`a:${index}`} style={styles.live}>
-              {line.text}
-              <Text style={styles.caret}>▍</Text>
-            </Text>
-          );
-        }
-        return <ChatText key={`a:${index}`} text={line.text} />;
-      })}
+      {renderTimeline(lines, live, thinkingDone, lastAssistantAt)}
     </>
   );
 }
 
+function renderTimeline(
+  lines: TranscriptLine[],
+  live?: boolean,
+  thinkingDone?: boolean,
+  lastAssistantAt = -1,
+) {
+  const nodes = [];
+  let index = 0;
+  while (index < lines.length) {
+    const line = lines[index];
+    if (line?.kind === 'tool') {
+      const start = index;
+      const group: Extract<TranscriptLine, { kind: 'tool' }>[] = [];
+      while (index < lines.length && lines[index]?.kind === 'tool') {
+        const tool = lines[index];
+        if (tool?.kind === 'tool') group.push(tool);
+        index += 1;
+      }
+      nodes.push(
+        <View key={`tools:${start}`} style={styles.tools}>
+          {group.map((tool, toolIndex) => (
+            <ToolRow
+              key={`${tool.callId}-${toolIndex}`}
+              name={tool.name}
+              args={tool.args}
+              running={tool.status !== 'completed'}
+            />
+          ))}
+        </View>,
+      );
+      continue;
+    }
+    if (line?.kind === 'thinking') {
+      nodes.push(
+        <ThinkingBlock
+          key={`think:${index}`}
+          text={line.text}
+          done={Boolean(thinkingDone || line.done)}
+          durationMs={line.durationMs}
+          defaultOpen={!line.done && !thinkingDone}
+        />,
+      );
+      index += 1;
+      continue;
+    }
+    if (line?.kind === 'assistant' && line.text) {
+      nodes.push(
+        live && index === lastAssistantAt ? (
+          <Text key={`a:${index}`} style={styles.live}>
+            {line.text}
+            <Text style={styles.caret}>▍</Text>
+          </Text>
+        ) : (
+          <ChatText key={`a:${index}`} text={line.text} />
+        ),
+      );
+    }
+    index += 1;
+  }
+  return nodes;
+}
+
 const styles = StyleSheet.create({
-  tool: { color: colors.muted, fontSize: 13, lineHeight: 18 },
+  tools: { gap: 5, paddingVertical: 2 },
   live: { color: colors.text, fontSize: 16, lineHeight: 24 },
   caret: { color: colors.muted, fontSize: 16, lineHeight: 24 },
 });

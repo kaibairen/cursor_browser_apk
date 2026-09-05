@@ -60,8 +60,10 @@ type DemoTurn = {
 };
 
 const EXAMPLE_TOOLS: TranscriptLine[] = [
-  { kind: 'tool', callId: '1', name: 'read_file', status: 'completed', args: { path: 'src/features/agents/display.ts', offset: 1, limit: 56 } },
-  { kind: 'tool', callId: '2', name: 'read_file', status: 'completed', args: { path: 'src/app/preview.tsx', offset: 1, limit: 80 } },
+  { kind: 'tool', callId: '1', name: 'tool', status: 'completed', args: { path: 'src/lib/cursor/sseApply.ts' } },
+  { kind: 'tool', callId: '2', name: 'tool', status: 'completed', args: { path: 'src/ui/turnTimeline.tsx' } },
+  { kind: 'tool', callId: '2b', name: 'read_file', status: 'completed', args: { path: 'src/features/agents/display.ts', offset: 1, limit: 56 } },
+  { kind: 'tool', callId: '2c', name: 'read_file', status: 'completed', args: { path: 'src/app/agent/[id].tsx' } },
   { kind: 'tool', callId: '3', name: 'grep', status: 'completed', args: { pattern: 'streamTools|ThinkingBlock|toolLabel', path: 'src' } },
   { kind: 'tool', callId: '4', name: 'web_search', status: 'completed', args: { query: 'Cursor cloud agents conversation UI thinking tool calls' } },
   { kind: 'thinking', text: DEMO_THINKING, durationMs: 10000, done: true },

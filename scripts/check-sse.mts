@@ -251,17 +251,20 @@ if (
 ) {
   throw new Error(`timeline should stay chronological: ${JSON.stringify(timeline.lines)}`);
 }
-if (toolCaption('read_file', { path: 'src/features/agents/display.ts', offset: 1, limit: 56 }) !== 'Read `display.ts` L1-56') {
+if (toolCaption('read_file', { path: 'src/features/agents/display.ts', offset: 1, limit: 56 }) !== 'Read display.ts L1-56') {
   throw new Error('read_file caption should show file and lines');
 }
-if (toolCaption('grep', { pattern: 'streamTools|ThinkingBlock', path: 'src' }) !== 'Grepped `streamTools|ThinkingBlock` in `src`') {
+if (toolCaption('grep', { pattern: 'streamTools|ThinkingBlock', path: 'src' }) !== 'Grepped streamTools|ThinkingBlock in src') {
   throw new Error('grep caption should show pattern and path');
 }
-if (toolCaption('web_search', { query: 'Cursor cloud agents conversation UI' }) !== 'Searched web `Cursor cloud agents conversation UI`') {
+if (toolCaption('web_search', { query: 'Cursor cloud agents conversation UI' }) !== 'Searched web Cursor cloud agents conversation UI') {
   throw new Error('web_search caption should show the query');
 }
-if (toolCaption('run_terminal_cmd', { command: 'ls apps' }) !== 'Ran `ls apps`') {
+if (toolCaption('run_terminal_cmd', { command: 'ls apps' }) !== 'Ran ls apps') {
   throw new Error('shell caption should show the command');
+}
+if (toolCaption('tool', { path: 'src/lib/cursor/sseApply.ts' }) !== 'Read sseApply.ts') {
+  throw new Error('generic tool + path should look like Read');
 }
 
 const withArgs = play([

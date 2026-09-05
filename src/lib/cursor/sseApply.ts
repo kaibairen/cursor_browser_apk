@@ -171,7 +171,7 @@ function applyInteractionUpdate(
     const toolCall = asRecord(payload.toolCall);
     return upsertTool(lines, {
       callId: String(payload.callId ?? payload.call_id ?? ''),
-      name: String(toolCall?.name ?? payload.name ?? 'tool'),
+      name: String(toolCall?.name ?? toolCall?.toolName ?? payload.toolName ?? payload.name ?? 'tool'),
       status: type === 'tool-call-completed' ? 'completed' : 'running',
       args: readNestedArgs(payload, toolCall),
     });
@@ -191,7 +191,7 @@ function applyToolCall(raw: string, lines: TranscriptLine[]): TranscriptLine[] {
       callId: String(payload.callId ?? ''),
       name: String(payload.name ?? 'tool'),
       status: String(payload.status ?? 'running'),
-      args: readNestedArgs(payload),
+      args: readNestedArgs(payload as Record<string, unknown>),
       detail: payload.args ? summarizeArgs(payload.args) : undefined,
     });
   } catch {
@@ -238,11 +238,23 @@ function readNestedArgs(
   nested?: Record<string, unknown> | null,
 ): Record<string, unknown> | undefined {
   const raw = payload.args ?? payload.input ?? payload.params ?? nested?.args ?? nested?.input;
-  const args = asRecord(raw);
+  const args =
+    typeof raw === 'string' && raw.trim()
+      ? { path: raw.trim() }
+      : asRecord(raw);
   const result = asRecord(payload.result);
   const success = asRecord(result?.success);
   const merged = { ...success, ...args };
   return Object.keys(merged).length ? merged : undefined;
+}
+
+function betterToolName(next?: string, previous?: string): string {
+  const incoming = next?.trim() || '';
+  const kept = previous?.trim() || '';
+  const generic = /^(tool|mcp|unknown)?$/i;
+  if (incoming && !generic.test(incoming)) return incoming;
+  if (kept && !generic.test(kept)) return kept;
+  return incoming || kept || 'tool';
 }
 
 function upsertTool(
@@ -255,10 +267,11 @@ function upsertTool(
   const next: TranscriptLine = {
     kind: 'tool',
     callId: tool.callId,
-    name: tool.name || previous?.name || 'tool',
+    name:
+      betterToolName(tool.name, previous?.name),
     status: tool.status,
     detail: tool.detail ?? previous?.detail,
-    args: tool.args ?? previous?.args,
+    args: { ...previous?.args, ...tool.args },
   };
   if (existing >= 0) {
     const copy = [...lines];
