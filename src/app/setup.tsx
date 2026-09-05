@@ -5,7 +5,7 @@ import { colors, spacing } from '../theme';
 import { Button, Field } from '../ui/primitives';
 
 export default function SetupScreen() {
-  const { signIn } = useAuth();
+  const { signIn, error: bootError } = useAuth();
   const [key, setKey] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -29,7 +29,7 @@ export default function SetupScreen() {
         <Text style={styles.title}>用同一批云端任务</Text>
         <Text style={styles.body}>粘贴 User API Key。只存在这台手机上，和网页、桌面 Cloud 是同一个账号。</Text>
         <Field value={key} onChangeText={setKey} placeholder="粘贴 API Key" secureTextEntry />
-        {error ? <Text style={styles.error}>{error}</Text> : null}
+        {error || bootError ? <Text style={styles.error}>{error || bootError}</Text> : null}
         <Button title="进入" onPress={() => void onSubmit()} loading={busy} disabled={!key.trim()} />
         <Text style={styles.hint}>Dashboard → Integrations → User API Keys</Text>
         <View style={{ height: spacing.xl }} />

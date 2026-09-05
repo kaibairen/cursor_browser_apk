@@ -1,5 +1,5 @@
 import { Platform } from 'react-native';
-import { CursorApiError, CursorAuthError, friendlyNetworkError, isRetryableStatus } from './errors';
+import { CursorApiError, CursorAuthError, friendlyNetworkError, isRetryableError } from './errors';
 import type {
   Agent,
   AgentConversation,
@@ -114,11 +114,11 @@ export async function cursorFetch<T>(
       return await cursorFetchOnce<T>(apiKey, path, options);
     } catch (error) {
       lastError = error;
-      const retryable = error instanceof CursorApiError && isRetryableStatus(error.status);
-      if (!retryable || attempt === maxAttempts - 1) {
+      if (!isRetryableError(error) || attempt === maxAttempts - 1) {
         throw error;
       }
-      const waitMs = error.status === 429 ? 2000 * (attempt + 1) : 400 * 2 ** attempt;
+      const status = error instanceof CursorApiError ? error.status : 0;
+      const waitMs = status === 429 ? 2000 * (attempt + 1) : 400 * 2 ** attempt;
       await delay(waitMs);
     }
   }

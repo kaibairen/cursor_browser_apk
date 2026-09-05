@@ -1,4 +1,11 @@
 import { consumeSseBuffer, parseSseBlock } from '../src/lib/cursor/sseParse.ts';
+import {
+  CursorNetworkError,
+  NETWORK_MESSAGE,
+  friendlyNetworkError,
+  isNetworkError,
+  isRetryableError,
+} from '../src/lib/cursor/errors.ts';
 import { applySseEvent, ensureThinkingLine, type TranscriptLine } from '../src/lib/cursor/sseApply.ts';
 import { isLocalUserId, lastAssistantAfter, lastUserIndex, mergeConversation, mergePreservingLocalUsers, seedUserMessage } from '../src/features/agents/conversationView.ts';
 import { eventPhase, prepareBurst, replayDelayMs } from '../src/lib/cursor/ssePace.ts';
@@ -216,6 +223,14 @@ if (readModelId({ model: { id: 'composer-2' } }) !== 'composer-2') {
 }
 if (readModelId({ modelId: 'grok' }) !== 'grok') {
   throw new Error('readModelId string failed');
+}
+
+const refused = friendlyNetworkError(new TypeError('Failed to fetch'));
+if (!(refused instanceof CursorNetworkError) || refused.message !== NETWORK_MESSAGE) {
+  throw new Error('Failed to fetch should ask for a refresh, not blame CORS');
+}
+if (!isNetworkError(new Error('net::ERR_CONNECTION_REFUSED')) || !isRetryableError(refused)) {
+  throw new Error('connection refused should retry');
 }
 
 console.log('sse parse + apply ok');

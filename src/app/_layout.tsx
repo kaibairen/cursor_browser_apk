@@ -7,12 +7,13 @@ import type { ReactNode } from 'react';
 import { ActivityIndicator, Platform, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider, useAuth } from '../features/auth/AuthContext';
+import { isNetworkError } from '../lib/cursor/errors';
 import { colors } from '../theme';
 
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      retry: false,
+      retry: (count, error) => count < 2 && isNetworkError(error),
       refetchOnWindowFocus: false,
     },
   },

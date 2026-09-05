@@ -1,6 +1,6 @@
 import { fetch as expoFetch } from 'expo/fetch';
 import { streamUrl } from './client';
-import { CursorApiError, CursorAuthError } from './errors';
+import { CursorApiError, CursorAuthError, friendlyNetworkError } from './errors';
 import { consumeSseBuffer, type SseEvent } from './sseParse';
 
 export type { SseEvent } from './sseParse';
@@ -90,7 +90,7 @@ function openFetchStream(
       }
     } catch (error) {
       if (controller.signal.aborted) return;
-      handlers.onError?.(error instanceof Error ? error : new Error('SSE 连接失败'));
+      handlers.onError?.(friendlyNetworkError(error));
     }
   })();
   return () => controller.abort();
@@ -139,7 +139,7 @@ function openXhrStream(
   };
 
   xhr.onerror = () => {
-    handlers.onError?.(new Error('SSE 连接失败'));
+    handlers.onError?.(friendlyNetworkError(new Error('SSE 连接失败')));
   };
 
   xhr.onabort = () => {

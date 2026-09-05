@@ -260,7 +260,9 @@ export default function AgentDetailScreen() {
         <Pressable onPress={goBack}>
           <Text style={styles.back}>‹ 返回</Text>
         </Pressable>
-        <Text style={styles.error}>{agentQuery.error instanceof Error ? agentQuery.error.message : '加载失败'}</Text>
+        <Text style={styles.error}>
+          {agentQuery.error instanceof Error ? agentQuery.error.message : '加载失败'}
+        </Text>
       </View>
     );
   }
@@ -301,7 +303,20 @@ export default function AgentDetailScreen() {
   const latestUserIndex = lastUserIndex(history);
   const latestAssistantIndex = lastAssistantAfter(history, latestUserIndex);
   const chatEmpty =
-    !showChatSpinner && conversationReady && history.length === 0 && stream.lines.length === 0 && !run?.result;
+    !showChatSpinner &&
+    conversationReady &&
+    !conversation.isError &&
+    history.length === 0 &&
+    stream.lines.length === 0 &&
+    !run?.result;
+  const conversationError =
+    conversation.isError && conversation.error instanceof Error ? conversation.error.message : null;
+  const agentRefreshError =
+    agentQuery.isError && agent && agentQuery.error instanceof Error ? agentQuery.error.message : null;
+  const machineHint =
+    chatEmpty && agent?.env?.type === 'machine'
+      ? '这条任务跑在本机 worker 上。公开 Cloud API 读不到 Remote Control 对话。'
+      : null;
   const showResultFallback =
     conversationReady &&
     !showLiveAssistant &&
@@ -359,7 +374,10 @@ export default function AgentDetailScreen() {
           {tab === 'chat' ? (
             <View style={styles.chat}>
               {showChatSpinner ? <ChatLoading label="加载对话…" /> : null}
-              {stream.streamError ? <Text style={styles.meta}>{stream.streamError}</Text> : null}
+              {agentRefreshError ? <Text style={styles.error}>{agentRefreshError}</Text> : null}
+              {conversationError ? <Text style={styles.error}>{conversationError}</Text> : null}
+              {stream.streamError ? <Text style={styles.error}>{stream.streamError}</Text> : null}
+              {machineHint ? <Text style={styles.meta}>{machineHint}</Text> : null}
               {chatEmpty ? (
                 <Text style={styles.meta}>{live ? '等第一段回复。' : '还没有文字结果。'}</Text>
               ) : null}

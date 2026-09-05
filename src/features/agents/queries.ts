@@ -25,7 +25,7 @@ import {
   listRuns,
   unarchiveAgent,
 } from '../../lib/cursor/client';
-import { CursorApiError } from '../../lib/cursor/errors';
+import { CursorApiError, isNetworkError } from '../../lib/cursor/errors';
 import {
   isTerminalRun,
   type Agent,
@@ -153,6 +153,10 @@ export function useConversation(agentId: string, live: boolean) {
         return await loadConversation(requireApiKey(apiKey), agentId, queryClient);
       } catch (error) {
         handleApiError(error);
+        const local = queryClient.getQueryData<AgentConversation>(['conversation', agentId]);
+        if (local?.messages.length && isNetworkError(error)) {
+          return local;
+        }
         throw error;
       }
     },

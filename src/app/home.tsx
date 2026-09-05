@@ -57,7 +57,10 @@ export default function AgentsHomeScreen() {
   const create = useCreateAgent();
   const prefetchDetail = usePrefetchAgentDetail();
   const list = useAgentList({ includeArchived: false, enabled: focused });
-  const items = useMemo(() => list.data?.pages.flatMap((page) => page.items) ?? [], [list.data]);
+  const items = useMemo(
+    () => (list.data?.pages.flatMap((page) => page.items) ?? []).filter((item) => item?.id),
+    [list.data],
+  );
 
   const [query, setQuery] = useState('');
   const [text, setText] = useState('');
@@ -223,6 +226,11 @@ export default function AgentsHomeScreen() {
                 hint={voice.error ?? undefined}
               />
               {error ? <Text style={styles.error}>{error}</Text> : null}
+              {list.isError ? (
+                <Text style={styles.error}>
+                  {list.error instanceof Error ? list.error.message : '任务列表加载失败'}
+                </Text>
+              ) : null}
               <View style={styles.sectionHead}>
                 <Text style={styles.sectionTitle}>{sections[0]?.title ?? '最近'}</Text>
                 <TextInput

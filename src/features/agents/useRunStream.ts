@@ -4,7 +4,7 @@ import { openRunStream } from '../../lib/cursor/sse';
 import { applySseEvent, ensureThinkingLine, type TranscriptLine } from '../../lib/cursor/sseApply';
 import { prepareBurst, replayDelayMs } from '../../lib/cursor/ssePace';
 import type { SseEvent } from '../../lib/cursor/sseParse';
-import { CursorApiError } from '../../lib/cursor/errors';
+import { CursorApiError, isNetworkError } from '../../lib/cursor/errors';
 import { isTerminalRun, type Run, type RunStatus } from '../../lib/cursor/types';
 import { useAuth, useOptionalApiKey } from '../auth/AuthContext';
 
@@ -98,7 +98,9 @@ export function useRunStream(agentId: string, runId: string | undefined, runStat
         onEvent: (event) => enqueue([event], false),
         onEvents: (events) => enqueue(events, events.length > 1),
         onError: (error) => {
-          if (error instanceof CursorApiError && error.code === 'stream_unavailable') {
+          const unavailable = error instanceof CursorApiError && error.code === 'stream_unavailable';
+          const status = statusRef.current;
+          if (unavailable || (isNetworkError(error) && (!status || status === 'CREATING' || status === 'RUNNING'))) {
             scheduleRetry();
             return;
           }

@@ -5,8 +5,45 @@ const PREFIX = '/cursor-api';
 const ARTIFACT_MAX_BYTES = 2 * 1024 * 1024;
 
 function json(res, status, body) {
+  if (res.writableEnded || res.destroyed) return;
+  if (res.headersSent) {
+    try {
+      res.end();
+    } catch {
+      // already closed
+    }
+    return;
+  }
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' });
   res.end(JSON.stringify(body));
+}
+
+function writeSseChunk(res, chunk) {
+  if (!res || res.writableEnded || res.destroyed) return false;
+  try {
+    res.write(chunk);
+    if (typeof res.flush === 'function') res.flush();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function destroyQuietly(stream) {
+  if (!stream || stream.destroyed) return;
+  try {
+    stream.destroy();
+  } catch {
+    // ignore
+  }
+}
+
+function watchClientAbort(req, res, abort) {
+  const once = () => abort();
+  req.on('aborted', once);
+  req.on('close', once);
+  res.on('close', once);
+  res.on('error', once);
 }
 
 function isAllowedArtifactHost(hostname) {
@@ -111,49 +148,85 @@ function proxyCursorApi(req, res) {
   if (req.headers['content-type']) headers['content-type'] = req.headers['content-type'];
   if (req.headers['last-event-id']) headers['last-event-id'] = req.headers['last-event-id'];
 
-  const upstream = https.request(
-    {
-      hostname: 'api.cursor.com',
-      path: targetPath,
-      method: req.method,
-      headers,
-    },
-    (up) => {
-      const isSse =
-        /text\/event-stream/i.test(String(up.headers['content-type'] || '')) ||
-        targetPath.includes('/stream');
-      const outHeaders = {
-        'cache-control': isSse ? 'no-cache, no-transform' : 'no-store',
-      };
-      if (isSse) {
-        outHeaders['content-type'] = 'text/event-stream; charset=utf-8';
-        outHeaders.connection = 'keep-alive';
-        outHeaders['x-accel-buffering'] = 'no';
-      } else if (up.headers['content-type']) {
-        outHeaders['content-type'] = up.headers['content-type'];
-      }
-      res.writeHead(up.statusCode || 502, outHeaders);
-      if (typeof res.flushHeaders === 'function') res.flushHeaders();
-      if (!isSse) {
-        up.pipe(res);
-        return;
-      }
-      up.on('data', (chunk) => {
-        res.write(chunk);
-        if (typeof res.flush === 'function') res.flush();
-      });
-      up.on('end', () => res.end());
-      up.on('error', () => {
-        if (!res.writableEnded) res.end();
-      });
-    },
-  );
+  let upstream;
+  const abort = () => destroyQuietly(upstream);
+  watchClientAbort(req, res, abort);
+
+  try {
+    upstream = https.request(
+      {
+        hostname: 'api.cursor.com',
+        path: targetPath,
+        method: req.method,
+        headers,
+      },
+      (up) => {
+        const isSse =
+          /text\/event-stream/i.test(String(up.headers['content-type'] || '')) ||
+          targetPath.includes('/stream');
+        const outHeaders = {
+          'cache-control': isSse ? 'no-cache, no-transform' : 'no-store',
+        };
+        if (isSse) {
+          outHeaders['content-type'] = 'text/event-stream; charset=utf-8';
+          outHeaders.connection = 'keep-alive';
+          outHeaders['x-accel-buffering'] = 'no';
+        } else if (up.headers['content-type']) {
+          outHeaders['content-type'] = up.headers['content-type'];
+        }
+        if (res.writableEnded || res.destroyed) {
+          destroyQuietly(up);
+          return;
+        }
+        res.writeHead(up.statusCode || 502, outHeaders);
+        if (typeof res.flushHeaders === 'function') res.flushHeaders();
+        if (!isSse) {
+          up.on('error', abort);
+          res.on('error', abort);
+          up.pipe(res);
+          return;
+        }
+        up.on('data', (chunk) => {
+          if (!writeSseChunk(res, chunk)) destroyQuietly(up);
+        });
+        up.on('end', () => {
+          if (!res.writableEnded) {
+            try {
+              res.end();
+            } catch {
+              // ignore
+            }
+          }
+        });
+        up.on('error', () => {
+          destroyQuietly(up);
+          if (!res.writableEnded) {
+            try {
+              res.end();
+            } catch {
+              // ignore
+            }
+          }
+        });
+      },
+    );
+  } catch {
+    json(res, 502, { message: '无法连接 Cursor API' });
+    return;
+  }
 
   upstream.on('error', () => {
     if (!res.headersSent) {
-      res.writeHead(502, { 'content-type': 'application/json' });
+      json(res, 502, { message: '无法连接 Cursor API' });
+      return;
     }
-    res.end(JSON.stringify({ message: '无法连接 Cursor API' }));
+    if (!res.writableEnded) {
+      try {
+        res.end();
+      } catch {
+        // ignore
+      }
+    }
   });
 
   req.pipe(upstream);
@@ -225,21 +298,28 @@ function proxyGithubPr(req, res) {
 
 function attachCursorApiProxy(metroMiddleware) {
   return function cursorApiMiddleware(req, res, next) {
-    const pathname = new URL(req.url || '/', 'http://127.0.0.1').pathname;
-    if (pathname === `${PREFIX}/artifact`) {
-      proxyArtifact(req, res);
-      return;
+    try {
+      const pathname = new URL(req.url || '/', 'http://127.0.0.1').pathname;
+      if (pathname === `${PREFIX}/artifact`) {
+        proxyArtifact(req, res);
+        return;
+      }
+      if (pathname === `${PREFIX}/github-pr`) {
+        proxyGithubPr(req, res);
+        return;
+      }
+      if (pathname.startsWith(`${PREFIX}/`) || pathname === PREFIX) {
+        proxyCursorApi(req, res);
+        return;
+      }
+      return metroMiddleware(req, res, next);
+    } catch {
+      if (!res.headersSent && !res.writableEnded) {
+        res.statusCode = 502;
+        res.end();
+      }
     }
-    if (pathname === `${PREFIX}/github-pr`) {
-      proxyGithubPr(req, res);
-      return;
-    }
-    if (pathname.startsWith(`${PREFIX}/`) || pathname === PREFIX) {
-      proxyCursorApi(req, res);
-      return;
-    }
-    return metroMiddleware(req, res, next);
   };
 }
 
-module.exports = { attachCursorApiProxy, PREFIX };
+module.exports = { attachCursorApiProxy, PREFIX, writeSseChunk };
