@@ -10,7 +10,9 @@ import { colors, spacing } from '../theme';
 import { AccountMenuPopover, SETTINGS_TITLES, type SettingsPageId } from '../ui/accountMenu';
 import { ChatText } from '../ui/chatText';
 import { ThinkingBlock } from '../ui/thinkingBlock';
+import { TurnTimeline } from '../ui/turnTimeline';
 import { UserBubble } from '../ui/userBubble';
+import type { TranscriptLine } from '../lib/cursor/sseApply';
 import { AgentRowMeta, AgentStatusIcon } from '../ui/agentRow';
 import { Composer, RepoSourceBar } from '../ui/composer';
 import { AvatarButton, Segmented } from '../ui/primitives';
@@ -56,6 +58,15 @@ type DemoTurn = {
   thinkingMs?: number;
   reply?: string;
 };
+
+const EXAMPLE_TOOLS: TranscriptLine[] = [
+  { kind: 'tool', callId: '1', name: 'read_file', status: 'completed', args: { path: 'src/features/agents/display.ts', offset: 1, limit: 56 } },
+  { kind: 'tool', callId: '2', name: 'read_file', status: 'completed', args: { path: 'src/app/preview.tsx', offset: 1, limit: 80 } },
+  { kind: 'tool', callId: '3', name: 'grep', status: 'completed', args: { pattern: 'streamTools|ThinkingBlock|toolLabel', path: 'src' } },
+  { kind: 'tool', callId: '4', name: 'web_search', status: 'completed', args: { query: 'Cursor cloud agents conversation UI thinking tool calls' } },
+  { kind: 'thinking', text: DEMO_THINKING, durationMs: 10000, done: true },
+  { kind: 'assistant', text: DEMO_MARKDOWN },
+];
 
 const EXAMPLE_THREAD: DemoTurn[] = [
   {
@@ -147,15 +158,21 @@ export default function PreviewScreen() {
               {thread.map((item, index) => (
                 <View key={`${index}-${item.user}`} style={{ gap: 14 }}>
                   <UserBubble text={item.user} />
-                  {item.thinking ? (
-                    <ThinkingBlock
-                      text={item.thinking}
-                      done
-                      durationMs={item.thinkingMs}
-                      defaultOpen={false}
-                    />
-                  ) : null}
-                  {item.reply ? <ChatText text={item.reply} /> : null}
+                  {index === 0 ? (
+                    <TurnTimeline lines={EXAMPLE_TOOLS} thinkingDone />
+                  ) : (
+                    <>
+                      {item.thinking ? (
+                        <ThinkingBlock
+                          text={item.thinking}
+                          done
+                          durationMs={item.thinkingMs}
+                          defaultOpen={false}
+                        />
+                      ) : null}
+                      {item.reply ? <ChatText text={item.reply} /> : null}
+                    </>
+                  )}
                 </View>
               ))}
               {turn.waiting || (!thread[thread.length - 1]?.reply && (turn.thinking || turn.reply)) ? (

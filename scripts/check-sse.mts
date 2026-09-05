@@ -17,7 +17,7 @@ import {
 import { isLocalUserId, lastAssistantAfter, lastUserIndex, mergeConversation, mergePreservingLocalUsers, seedUserMessage } from '../src/features/agents/conversationView.ts';
 import { eventPhase, prepareBurst, replayDelayMs } from '../src/lib/cursor/ssePace.ts';
 import { defaultCatalogModelId, resolveStoredModelId } from '../src/features/agents/models.ts';
-import { toolLabel } from '../src/features/agents/display.ts';
+import { toolCaption } from '../src/features/agents/toolCaption.ts';
 import { readModelId } from '../src/lib/cursor/modelId.ts';
 
 const parsed = parseSseBlock('id: 1\nevent: assistant\ndata: {"text":"hi"}');
@@ -251,8 +251,24 @@ if (
 ) {
   throw new Error(`timeline should stay chronological: ${JSON.stringify(timeline.lines)}`);
 }
-if (toolLabel('Shell') !== '运行命令' || toolLabel('tool') !== '工具') {
-  throw new Error('toolLabel should map official names');
+if (toolCaption('read_file', { path: 'src/features/agents/display.ts', offset: 1, limit: 56 }) !== 'Read `display.ts` L1-56') {
+  throw new Error('read_file caption should show file and lines');
+}
+if (toolCaption('grep', { pattern: 'streamTools|ThinkingBlock', path: 'src' }) !== 'Grepped `streamTools|ThinkingBlock` in `src`') {
+  throw new Error('grep caption should show pattern and path');
+}
+if (toolCaption('web_search', { query: 'Cursor cloud agents conversation UI' }) !== 'Searched web `Cursor cloud agents conversation UI`') {
+  throw new Error('web_search caption should show the query');
+}
+if (toolCaption('run_terminal_cmd', { command: 'ls apps' }) !== 'Ran `ls apps`') {
+  throw new Error('shell caption should show the command');
+}
+
+const withArgs = play([
+  { event: 'tool_call', data: '{"callId":"c1","name":"read_file","status":"completed","args":{"path":"README.md"}}' },
+]);
+if (withArgs.lines[0]?.kind !== 'tool' || withArgs.lines[0].args?.path !== 'README.md') {
+  throw new Error('tool_call should keep args for captions');
 }
 
 const refused = friendlyNetworkError(new TypeError('Failed to fetch'));

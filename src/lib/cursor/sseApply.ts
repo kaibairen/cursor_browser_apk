@@ -4,7 +4,7 @@ import type { RunStatus } from './types';
 export type TranscriptLine =
   | { kind: 'assistant'; text: string }
   | { kind: 'thinking'; text: string; durationMs?: number; done?: boolean }
-  | { kind: 'tool'; callId: string; name: string; status: string; detail?: string };
+  | { kind: 'tool'; callId: string; name: string; status: string; detail?: string; args?: Record<string, unknown> };
 
 export type StreamApplyContext = {
   lastEventId?: string;
@@ -168,11 +168,12 @@ function applyInteractionUpdate(
     return markLastThinkingDone(lines, durationMs);
   }
   if (type === 'tool-call-started' || type === 'tool-call-completed' || type === 'partial-tool-call') {
-    const toolCall = payload.toolCall as { name?: string } | undefined;
+    const toolCall = asRecord(payload.toolCall);
     return upsertTool(lines, {
       callId: String(payload.callId ?? payload.call_id ?? ''),
       name: String(toolCall?.name ?? payload.name ?? 'tool'),
       status: type === 'tool-call-completed' ? 'completed' : 'running',
+      args: readNestedArgs(payload, toolCall),
     });
   }
   return lines;
@@ -190,6 +191,7 @@ function applyToolCall(raw: string, lines: TranscriptLine[]): TranscriptLine[] {
       callId: String(payload.callId ?? ''),
       name: String(payload.name ?? 'tool'),
       status: String(payload.status ?? 'running'),
+      args: readNestedArgs(payload),
       detail: payload.args ? summarizeArgs(payload.args) : undefined,
     });
   } catch {
@@ -225,13 +227,39 @@ function upsertAssistant(lines: TranscriptLine[], text: string): TranscriptLine[
   return [...lines, { kind: 'assistant', text }];
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function readNestedArgs(
+  payload: Record<string, unknown>,
+  nested?: Record<string, unknown> | null,
+): Record<string, unknown> | undefined {
+  const raw = payload.args ?? payload.input ?? payload.params ?? nested?.args ?? nested?.input;
+  const args = asRecord(raw);
+  const result = asRecord(payload.result);
+  const success = asRecord(result?.success);
+  const merged = { ...success, ...args };
+  return Object.keys(merged).length ? merged : undefined;
+}
+
 function upsertTool(
   lines: TranscriptLine[],
-  tool: { callId: string; name: string; status: string; detail?: string },
+  tool: { callId: string; name: string; status: string; detail?: string; args?: Record<string, unknown> },
 ): TranscriptLine[] {
   if (!tool.callId) return [...lines, { kind: 'tool', ...tool, callId: `tool-${lines.length}` }];
   const existing = lines.findIndex((line) => line.kind === 'tool' && line.callId === tool.callId);
-  const next: TranscriptLine = { kind: 'tool', ...tool };
+  const previous = existing >= 0 && lines[existing]?.kind === 'tool' ? lines[existing] : null;
+  const next: TranscriptLine = {
+    kind: 'tool',
+    callId: tool.callId,
+    name: tool.name || previous?.name || 'tool',
+    status: tool.status,
+    detail: tool.detail ?? previous?.detail,
+    args: tool.args ?? previous?.args,
+  };
   if (existing >= 0) {
     const copy = [...lines];
     copy[existing] = next;

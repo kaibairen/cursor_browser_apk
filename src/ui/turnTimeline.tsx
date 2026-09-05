@@ -1,5 +1,5 @@
-import { Text } from 'react-native';
-import { toolLabel } from '../features/agents/display';
+import { StyleSheet, Text } from 'react-native';
+import { toolCaption } from '../features/agents/toolCaption';
 import type { TranscriptLine } from '../lib/cursor/sseApply';
 import { colors } from '../theme';
 import { ChatText } from './chatText';
@@ -45,18 +45,18 @@ export function TurnTimeline({
         }
         if (line.kind === 'tool') {
           return (
-            <Text key={`${line.callId}-${index}`} style={{ color: colors.muted, fontSize: 13 }}>
-              {toolLabel(line.name)}
-              {line.status === 'completed' ? ' · 完成' : '…'}
+            <Text key={`${line.callId}-${index}`} style={styles.tool}>
+              {toolCaption(line.name, line.args)}
+              {line.status === 'completed' ? '' : ' …'}
             </Text>
           );
         }
         if (!line.text) return null;
         if (live && index === lastAssistantAt) {
           return (
-            <Text key={`a:${index}`} style={{ color: colors.text, fontSize: 16, lineHeight: 24 }}>
+            <Text key={`a:${index}`} style={styles.live}>
               {line.text}
-              <Text style={{ color: colors.muted }}>▍</Text>
+              <Text style={styles.caret}>▍</Text>
             </Text>
           );
         }
@@ -65,3 +65,9 @@ export function TurnTimeline({
     </>
   );
 }
+
+const styles = StyleSheet.create({
+  tool: { color: colors.muted, fontSize: 13, lineHeight: 18 },
+  live: { color: colors.text, fontSize: 16, lineHeight: 24 },
+  caret: { color: colors.muted, fontSize: 16, lineHeight: 24 },
+});
