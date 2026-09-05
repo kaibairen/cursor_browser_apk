@@ -21,6 +21,7 @@ import type { AgentListItem, ConversationMode, CreateAgentRequest } from '../lib
 import { dateGroup, dateGroupLabel, formatRelative, type DateGroup } from '../lib/format';
 import { usePrefs } from '../storage/usePrefs';
 import { colors, spacing } from '../theme';
+import { useVoiceInput } from '../features/speech/useVoiceInput';
 import { Composer } from '../ui/composer';
 import { AvatarButton } from '../ui/primitives';
 import { ActionSheet } from '../ui/sheet';
@@ -52,6 +53,7 @@ export default function AgentsHomeScreen() {
   const [error, setError] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
   const [picker, setPicker] = useState<Picker>(null);
+  const voice = useVoiceInput(text, setText);
 
   useEffect(() => {
     if (!prefs || hydrated) return;
@@ -181,6 +183,10 @@ export default function AgentsHomeScreen() {
                     .catch((err: unknown) => setError(err instanceof Error ? err.message : '无法选择图片'));
                 }}
                 attachLabel={images.length ? images.map((item) => item.fileName).join(' · ') : undefined}
+                listening={voice.listening}
+                onMicStart={voice.onMicStart}
+                onMicEnd={voice.onMicEnd}
+                hint={voice.error ?? undefined}
               >
                 <View style={styles.sourceRow}>
                   <Pressable accessibilityRole="button" onPress={() => setPicker('source')} style={styles.sourceChip}>

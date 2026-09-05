@@ -6,6 +6,7 @@ import { ChatText } from '../ui/chatText';
 import { Composer } from '../ui/composer';
 import { AvatarButton, Segmented } from '../ui/primitives';
 import { ActionSheet } from '../ui/sheet';
+import { useVoiceInput } from '../features/speech/useVoiceInput';
 
 const DEMO_ROWS = [
   { title: '记忆系统对齐分析', meta: 'neo-cloud-agent', time: '18m', done: true },
@@ -44,6 +45,8 @@ export default function PreviewScreen() {
   const [model, setModel] = useState('默认模型');
   const [picker, setPicker] = useState(false);
   const [more, setMore] = useState(false);
+  const homeVoice = useVoiceInput(homeText, setHomeText);
+  const followVoice = useVoiceInput(follow, setFollow);
 
   if (page === 'detail') {
     return (
@@ -88,6 +91,10 @@ export default function PreviewScreen() {
             placeholder="Add a follow up"
             onSubmit={() => setFollow('')}
             modelLabel="沿用此任务模型"
+            listening={followVoice.listening}
+            onMicStart={followVoice.onMicStart}
+            onMicEnd={followVoice.onMicEnd}
+            hint={followVoice.error ?? undefined}
           />
         </View>
         <ActionSheet
@@ -122,6 +129,10 @@ export default function PreviewScreen() {
           onSubmit={() => setPage('detail')}
           modelLabel={model}
           onModelPress={() => setPicker(true)}
+          listening={homeVoice.listening}
+          onMicStart={homeVoice.onMicStart}
+          onMicEnd={homeVoice.onMicEnd}
+          hint={homeVoice.error ?? undefined}
         >
           <View style={styles.sourceChip}>
             <Text style={styles.sourceText}>从零开始 ▾</Text>

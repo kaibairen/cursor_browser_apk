@@ -1,0 +1,9 @@
+{
+  "platforms": ["android", "ios"],
+  "android": {
+    "modules": ["com.kaibairen.pcm.PcmRecorderModule"]
+  },
+  "ios": {
+    "modules": ["PcmRecorderModule"]
+  }
+}

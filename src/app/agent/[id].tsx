@@ -39,6 +39,7 @@ import { Composer } from '../../ui/composer';
 import { githubHttpsUrl, openExternal } from '../../ui/openUrl';
 import { Segmented } from '../../ui/primitives';
 import { ActionSheet } from '../../ui/sheet';
+import { useVoiceInput } from '../../features/speech/useVoiceInput';
 
 export default function AgentDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -70,6 +71,7 @@ export default function AgentDetailScreen() {
   const [usageOpen, setUsageOpen] = useState(false);
   const [artifactView, setArtifactView] = useState<ArtifactView | null>(null);
   const [binaryUrl, setBinaryUrl] = useState<string | null>(null);
+  const voice = useVoiceInput(prompt, setPrompt);
 
   const busy = agent?.status === 'ACTIVE' || live || followUp.isPending;
   const usageText = useMemo(() => {
@@ -254,7 +256,13 @@ export default function AgentDetailScreen() {
               onSubmit={() => void onFollowUp()}
               submitting={followUp.isPending}
               modelLabel="沿用此任务模型"
-              hint={busy ? '这一轮还在写。可以先打字，写完再发；现在发可能会被拒绝。' : undefined}
+              hint={
+                voice.error ??
+                (busy ? '这一轮还在写。可以先打字，写完再发；现在发可能会被拒绝。' : undefined)
+              }
+              listening={voice.listening}
+              onMicStart={voice.onMicStart}
+              onMicEnd={voice.onMicEnd}
               onAttach={() => {
                 void pickImages(images.length)
                   .then((next) => setImages((current) => [...current, ...next]))
