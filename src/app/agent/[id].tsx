@@ -1,6 +1,6 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeBack } from '../../lib/nav';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -41,6 +41,7 @@ import { isUserMessage, mergePreservingLocalUsers } from '../../features/agents/
 import { ArtifactViewer, type ArtifactView } from '../../ui/artifactViewer';
 import { ChatLoading } from '../../ui/chatLoading';
 import { ChatText } from '../../ui/chatText';
+import { ThinkingBlock } from '../../ui/thinkingBlock';
 import { UserBubble } from '../../ui/userBubble';
 import { Composer } from '../../ui/composer';
 import { githubHttpsUrl, openExternal } from '../../ui/openUrl';
@@ -60,8 +61,8 @@ export default function AgentDetailScreen() {
   const latestRunId = agent?.latestRunId;
   const runQuery = useRun(agentId, latestRunId, true);
   const run = runQuery.data;
-  const live = Boolean(run && !isTerminalRun(run.status));
   const stream = useRunStream(agentId, latestRunId, run?.status);
+  const live = Boolean((run && !isTerminalRun(run.status)) || stream.live);
   const conversation = useConversation(agentId, live);
   const followUp = useCreateFollowUp(agentId);
   const cancel = useCancelRun(agentId);
@@ -85,6 +86,7 @@ export default function AgentDetailScreen() {
   const [artifactView, setArtifactView] = useState<ArtifactView | null>(null);
   const [binaryUrl, setBinaryUrl] = useState<string | null>(null);
   const voice = useVoiceInput(prompt, setPrompt);
+  const scrollRef = useRef<ScrollView>(null);
 
   const busy = agent?.status === 'ACTIVE' || live || followUp.isPending;
 
@@ -95,6 +97,11 @@ export default function AgentDetailScreen() {
       current.filter((item) => !messages.some((message) => isUserMessage(message) && message.text === item.text)),
     );
   }, [conversation.data?.messages]);
+
+  useEffect(() => {
+    if (!(live || followUp.isPending || stream.lines.length)) return;
+    scrollRef.current?.scrollToEnd({ animated: false });
+  }, [live, followUp.isPending, stream.lines, conversation.data?.messages?.length, pendingUsers.length]);
 
   const usageText = useMemo(() => {
     if (!usage.data) return '还没拉到用量。';
@@ -176,14 +183,11 @@ export default function AgentDetailScreen() {
   );
   const hasLocalSend = pendingUsers.length > 0;
   const hasUser = history.some(isUserMessage);
-  const lastHistory = history[history.length - 1];
   const conversationReady = conversation.isSuccess || conversation.isError;
   const showChatSpinner = !hasLocalSend && history.length === 0 && conversation.isLoading;
-  const showLiveAssistant =
-    (hasUser || conversationReady) &&
-    (live || (stream.lines.length > 0 && Boolean(lastHistory && isUserMessage(lastHistory))));
-  const waitingForAssistant =
-    hasLocalSend && Boolean(lastHistory && isUserMessage(lastHistory)) && stream.lines.length === 0;
+  const showLiveAssistant = stream.lines.length > 0 || (stream.live && hasUser);
+  const waitingForFirstToken =
+    hasUser && (stream.live || followUp.isPending) && stream.lines.length === 0;
   const chatEmpty =
     !showChatSpinner && conversationReady && history.length === 0 && stream.lines.length === 0 && !run?.result;
   const showResultFallback =
@@ -235,11 +239,14 @@ export default function AgentDetailScreen() {
           />
         </View>
 
-        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        <ScrollView
+          ref={scrollRef}
+          contentContainerStyle={styles.content}
+          keyboardShouldPersistTaps="handled"
+        >
           {tab === 'chat' ? (
             <View style={styles.chat}>
               {showChatSpinner ? <ChatLoading label="加载对话…" /> : null}
-              {!showChatSpinner && live && !waitingForAssistant ? <Text style={styles.live}>正在写…</Text> : null}
               {stream.streamError ? <Text style={styles.meta}>{stream.streamError}</Text> : null}
               {chatEmpty ? (
                 <Text style={styles.meta}>{live ? '等第一段回复。' : '还没有文字结果。'}</Text>
@@ -255,7 +262,7 @@ export default function AgentDetailScreen() {
                     return <ChatText key={item.id} text={item.text} />;
                   })
                 : null}
-              {!showChatSpinner && waitingForAssistant ? <ChatLoading compact label="正在写…" /> : null}
+              {!showChatSpinner && waitingForFirstToken ? <ThinkingBlock text="" /> : null}
               {!showChatSpinner && showLiveAssistant
                 ? stream.lines.map((line, index) => {
                     if (line.kind === 'tool') {
@@ -268,9 +275,12 @@ export default function AgentDetailScreen() {
                     }
                     if (line.kind === 'thinking') {
                       return (
-                        <Text key={`t-${index}`} style={styles.thinking}>
-                          {line.text}
-                        </Text>
+                        <ThinkingBlock
+                          key={`t-${index}`}
+                          text={line.text}
+                          done={line.done || !stream.live}
+                          durationMs={line.durationMs}
+                        />
                       );
                     }
                     return <ChatText key={`a-${index}`} text={line.text} />;
@@ -438,8 +448,6 @@ const styles = StyleSheet.create({
   tabs: { paddingHorizontal: spacing.md, paddingBottom: 8 },
   content: { paddingHorizontal: spacing.lg, paddingBottom: 24 },
   chat: { gap: 14, paddingTop: 8 },
-  live: { color: colors.live, fontSize: 13, fontWeight: '600' },
-  thinking: { color: colors.muted, fontSize: 14, lineHeight: 20 },
   tool: { color: colors.muted, fontSize: 13 },
   meta: { color: colors.muted, fontSize: 14, lineHeight: 20 },
   link: { color: colors.link, fontSize: 15 },

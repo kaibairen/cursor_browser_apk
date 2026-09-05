@@ -1,4 +1,5 @@
 import { consumeSseBuffer, parseSseBlock } from '../src/lib/cursor/sseParse.ts';
+import { applySseEvent, type TranscriptLine } from '../src/lib/cursor/sseApply.ts';
 
 const parsed = parseSseBlock('id: 1\nevent: assistant\ndata: {"text":"hi"}');
 if (!parsed || parsed.event !== 'assistant' || parsed.id !== '1' || parsed.data !== '{"text":"hi"}') {
@@ -19,4 +20,58 @@ if (parseSseBlock(': keepalive') !== null) {
   throw new Error('comments should be ignored');
 }
 
-console.log('sse parse ok');
+function play(rawEvents: { event: string; data: string; id?: string }[]) {
+  const ctx = { simplified: { assistant: false, thinking: false } };
+  let lines: TranscriptLine[] = [];
+  let terminal = false;
+  for (const event of rawEvents) {
+    const next = applySseEvent(event, lines, ctx);
+    lines = next.lines;
+    terminal = next.terminal;
+  }
+  return { lines, terminal, ctx };
+}
+
+const streamed = play([
+  { event: 'thinking', data: '{"text":"先看"}' },
+  { event: 'thinking', data: '{"text":"问题"}' },
+  { event: 'interaction_update', data: '{"type":"thinking-completed","thinkingDurationMs":1800}' },
+  { event: 'assistant', data: '{"text":"黑"}' },
+  { event: 'assistant', data: '{"text":"色气泡"}' },
+  { event: 'result', data: '{"status":"FINISHED","text":"黑色气泡会先出现。"}' },
+]);
+
+if (streamed.lines[0]?.kind !== 'thinking' || streamed.lines[0].text !== '先看问题' || !streamed.lines[0].done) {
+  throw new Error(`thinking merge failed: ${JSON.stringify(streamed.lines[0])}`);
+}
+if (streamed.lines[0].durationMs !== 1800) {
+  throw new Error('thinking duration missing');
+}
+if (streamed.lines[1]?.kind !== 'assistant' || streamed.lines[1].text !== '黑色气泡会先出现。') {
+  throw new Error(`assistant result upsert failed: ${JSON.stringify(streamed.lines[1])}`);
+}
+if (!streamed.terminal) {
+  throw new Error('result should end the stream');
+}
+
+const noDup = play([
+  { event: 'assistant', data: '{"text":"A"}' },
+  { event: 'interaction_update', data: '{"type":"text-delta","text":"B"}' },
+]);
+if (noDup.lines.length !== 1 || noDup.lines[0]?.kind !== 'assistant' || noDup.lines[0].text !== 'A') {
+  throw new Error('simplified assistant should win over text-delta');
+}
+
+const interactionOnly = play([
+  { event: 'interaction_update', data: '{"type":"thinking-delta","text":"想"}' },
+  { event: 'interaction_update', data: '{"update":{"type":"thinking-delta","text":"一下"}}' },
+  { event: 'interaction_update', data: '{"type":"text-delta","text":"好"}' },
+]);
+if (interactionOnly.lines[0]?.kind !== 'thinking' || interactionOnly.lines[0].text !== '想一下') {
+  throw new Error('nested thinking-delta failed');
+}
+if (interactionOnly.lines[1]?.kind !== 'assistant' || interactionOnly.lines[1].text !== '好') {
+  throw new Error('text-delta failed');
+}
+
+console.log('sse parse + apply ok');

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { groupByProject } from '../features/agents/projects';
@@ -8,8 +8,8 @@ import { WorkspacePanel } from '../features/settings/WorkspacePanel';
 import { useVoiceInput } from '../features/speech/useVoiceInput';
 import { colors, spacing } from '../theme';
 import { AccountMenuPopover, SETTINGS_TITLES, type SettingsPageId } from '../ui/accountMenu';
-import { ChatLoading } from '../ui/chatLoading';
 import { ChatText } from '../ui/chatText';
+import { ThinkingBlock } from '../ui/thinkingBlock';
 import { UserBubble } from '../ui/userBubble';
 import { AgentRowMeta, AgentStatusIcon } from '../ui/agentRow';
 import { Composer, RepoSourceBar } from '../ui/composer';
@@ -22,6 +22,8 @@ const DEMO_ROWS = [
   { title: '对话存储方式', meta: 'neo-cloud-agent', time: '7h', done: false },
   { title: 'Cursor 网页集成可行性', meta: 'cursor_browser_apk', time: '7h', done: true, additions: 10774, deletions: 1 },
 ];
+
+const DEMO_QUESTION = '这四件事分别根据什么来判断？对象是不是「会算但收尾选飞」。';
 
 const DEMO_MARKDOWN = `## 3. 基于什么指标，对应什么情况
 
@@ -45,15 +47,17 @@ const DEMO_MARKDOWN = `## 3. 基于什么指标，对应什么情况
 - 删掉 \`conversation_search\`
 `;
 
+const DEMO_THINKING = '用户在问判断标准。先对上「会算 / 答对 / 错配」三列，再解释「会算但收尾选飞」对应哪一行。';
+const DEMO_FOLLOW_REPLY = '黑色气泡会先出现。下面先展开思考，再一段一段写出回复。';
+
 export default function PreviewScreen() {
   const insets = useSafeAreaInsets();
   const [page, setPage] = useState<'home' | 'detail'>('home');
   const [tab, setTab] = useState('chat');
   const [homeText, setHomeText] = useState('');
   const [follow, setFollow] = useState('');
-  const [sent, setSent] = useState(['这四件事分别根据什么来判断？对象是不是「会算但收尾选飞」。']);
+  const [sent, setSent] = useState([DEMO_QUESTION]);
   const [replies, setReplies] = useState([DEMO_MARKDOWN]);
-  const [waiting, setWaiting] = useState(false);
   const [model, setModel] = useState('默认模型');
   const [picker, setPicker] = useState<'model' | 'repo' | null>(null);
   const [repo, setRepo] = useState('默认仓库');
@@ -62,6 +66,33 @@ export default function PreviewScreen() {
   const [settingsPage, setSettingsPage] = useState<SettingsPageId | null>(null);
   const homeVoice = useVoiceInput(homeText, setHomeText);
   const followVoice = useVoiceInput(follow, setFollow);
+  const turn = usePreviewTurn();
+  const scrollRef = useRef<ScrollView>(null);
+
+  useEffect(() => {
+    if (!turn.waiting) return;
+    scrollRef.current?.scrollToEnd({ animated: false });
+  }, [turn.waiting, turn.thinking, turn.reply, sent.length]);
+
+  function openFinishedExample() {
+    turn.stop();
+    setSent([DEMO_QUESTION]);
+    setReplies([DEMO_MARKDOWN]);
+    setPage('detail');
+  }
+
+  function startTurn(userText: string, reply: string, reset = false) {
+    if (reset) {
+      setSent([userText]);
+      setReplies([]);
+    } else {
+      setSent((current) => [...current, userText]);
+    }
+    turn.start(DEMO_THINKING, reply, () => {
+      setReplies((current) => [...current, reply]);
+    });
+    setPage('detail');
+  }
 
   if (settingsPage) {
     return (
@@ -95,7 +126,7 @@ export default function PreviewScreen() {
             ]}
           />
         </View>
-        <ScrollView contentContainerStyle={styles.chat}>
+        <ScrollView ref={scrollRef} contentContainerStyle={styles.chat}>
           {tab === 'chat' ? (
             <View style={{ gap: 14 }}>
               {sent.map((text, index) => (
@@ -104,7 +135,12 @@ export default function PreviewScreen() {
                   {replies[index] ? <ChatText text={replies[index]} /> : null}
                 </View>
               ))}
-              {waiting ? <ChatLoading label="正在写…" /> : null}
+              {turn.waiting ? (
+                <>
+                  <ThinkingBlock text={turn.thinking} done={turn.thinkingDone} />
+                  {turn.reply ? <ChatText text={turn.reply} /> : null}
+                </>
+              ) : null}
             </View>
           ) : (
             <View style={{ gap: 12 }}>
@@ -124,22 +160,20 @@ export default function PreviewScreen() {
             placeholder="Add a follow up"
             onSubmit={() => {
               const text = follow.trim();
-              if (!text || waiting) return;
-              setSent((current) => [...current, text]);
+              if (!text || turn.waiting) return;
               setFollow('');
-              setWaiting(true);
-              setTimeout(() => {
-                setReplies((current) => [...current, '预览回复。黑色气泡会先出现，这段字后到。']);
-                setWaiting(false);
-              }, 700);
+              startTurn(text, DEMO_FOLLOW_REPLY);
             }}
-            submitting={waiting}
+            submitting={false}
             modelLabel={model === '默认模型' ? '沿用此任务模型' : model}
             onModelPress={() => setPicker('model')}
             listening={followVoice.listening}
             onMicStart={followVoice.onMicStart}
             onMicEnd={followVoice.onMicEnd}
-            hint={followVoice.error ?? undefined}
+            hint={
+              followVoice.error ??
+              (turn.waiting ? '这一轮还在写。可以先打字，写完再发；现在发可能会被拒绝。' : undefined)
+            }
           />
         </View>
         <ActionSheet
@@ -187,20 +221,11 @@ export default function PreviewScreen() {
           onSubmit={() => {
             const text = homeText.trim();
             if (text) {
-              setSent([text]);
-              setReplies([]);
               setHomeText('');
-              setWaiting(true);
-              setTimeout(() => {
-                setReplies([DEMO_MARKDOWN]);
-                setWaiting(false);
-              }, 700);
-            } else {
-              setSent(['这四件事分别根据什么来判断？对象是不是「会算但收尾选飞」。']);
-              setReplies([DEMO_MARKDOWN]);
-              setWaiting(false);
+              startTurn(text, DEMO_MARKDOWN, true);
+              return;
             }
-            setPage('detail');
+            openFinishedExample();
           }}
           modelLabel={model}
           onModelPress={() => setPicker('model')}
@@ -213,16 +238,7 @@ export default function PreviewScreen() {
           <View key={section.key}>
             <Text style={styles.group}>{section.title}</Text>
             {section.data.map((row) => (
-              <Pressable
-                key={row.title}
-                style={styles.row}
-                onPress={() => {
-                  setSent(['这四件事分别根据什么来判断？对象是不是「会算但收尾选飞」。']);
-                  setReplies([DEMO_MARKDOWN]);
-                  setWaiting(false);
-                  setPage('detail');
-                }}
-              >
+              <Pressable key={row.title} style={styles.row} onPress={openFinishedExample}>
                 <AgentStatusIcon status={row.done ? 'IDLE' : 'ACTIVE'} />
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <Text style={styles.rowTitle}>{row.title}</Text>
@@ -271,6 +287,72 @@ export default function PreviewScreen() {
       />
     </View>
   );
+}
+
+function usePreviewTurn() {
+  const [waiting, setWaiting] = useState(false);
+  const [thinking, setThinking] = useState('');
+  const [thinkingDone, setThinkingDone] = useState(false);
+  const [reply, setReply] = useState('');
+  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  function clearTimers() {
+    for (const id of timers.current) clearTimeout(id);
+    timers.current = [];
+  }
+
+  function later(ms: number, fn: () => void) {
+    const id = setTimeout(fn, ms);
+    timers.current.push(id);
+  }
+
+  function typeOut(text: string, delay: number, onTick: (value: string) => void, onDone: () => void) {
+    let index = 0;
+    const step = () => {
+      index = Math.min(text.length, index + 2);
+      onTick(text.slice(0, index));
+      if (index >= text.length) {
+        onDone();
+        return;
+      }
+      later(delay, step);
+    };
+    later(delay, step);
+  }
+
+  function stop() {
+    clearTimers();
+    setWaiting(false);
+    setThinking('');
+    setThinkingDone(false);
+    setReply('');
+  }
+
+  function start(thinkingText: string, replyText: string, onComplete: () => void) {
+    clearTimers();
+    setWaiting(true);
+    setThinking('');
+    setThinkingDone(false);
+    setReply('');
+    later(180, () => {
+      typeOut(thinkingText, 18, setThinking, () => {
+        setThinkingDone(true);
+        later(220, () => {
+          typeOut(replyText, 16, setReply, () => {
+            onComplete();
+            setWaiting(false);
+            setThinking('');
+            setThinkingDone(false);
+            setReply('');
+          });
+        });
+      });
+    });
+  }
+
+  useEffect(() => () => clearTimers(), []);
+
+  return { waiting, thinking, thinkingDone, reply, start, stop };
 }
 
 const styles = StyleSheet.create({

@@ -119,12 +119,33 @@ function proxyCursorApi(req, res) {
       headers,
     },
     (up) => {
+      const isSse =
+        /text\/event-stream/i.test(String(up.headers['content-type'] || '')) ||
+        targetPath.includes('/stream');
       const outHeaders = {
-        'cache-control': 'no-store',
+        'cache-control': isSse ? 'no-cache, no-transform' : 'no-store',
       };
-      if (up.headers['content-type']) outHeaders['content-type'] = up.headers['content-type'];
+      if (isSse) {
+        outHeaders['content-type'] = 'text/event-stream; charset=utf-8';
+        outHeaders.connection = 'keep-alive';
+        outHeaders['x-accel-buffering'] = 'no';
+      } else if (up.headers['content-type']) {
+        outHeaders['content-type'] = up.headers['content-type'];
+      }
       res.writeHead(up.statusCode || 502, outHeaders);
-      up.pipe(res);
+      if (typeof res.flushHeaders === 'function') res.flushHeaders();
+      if (!isSse) {
+        up.pipe(res);
+        return;
+      }
+      up.on('data', (chunk) => {
+        res.write(chunk);
+        if (typeof res.flush === 'function') res.flush();
+      });
+      up.on('end', () => res.end());
+      up.on('error', () => {
+        if (!res.writableEnded) res.end();
+      });
     },
   );
 

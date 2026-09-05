@@ -321,6 +321,12 @@ export function useCreateAgent() {
       }
     },
     onSuccess: (result, body) => {
+      queryClient.setQueryData(['agent', result.agent.id], {
+        ...result.agent,
+        status: result.agent.status ?? 'ACTIVE',
+        latestRunId: result.run.id,
+      });
+      queryClient.setQueryData(['run', result.agent.id, result.run.id], result.run);
       void queryClient.invalidateQueries({ queryKey: ['agents'] });
       const text = body.prompt?.text?.trim();
       if (text) {
@@ -360,7 +366,11 @@ export function useCreateFollowUp(agentId: string) {
         queryClient.setQueryData(['conversation', agentId], context.previous);
       }
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
+      queryClient.setQueryData(['run', agentId, result.run.id], result.run);
+      queryClient.setQueryData(['agent', agentId], (current: Agent | undefined) =>
+        current ? { ...current, status: 'ACTIVE', latestRunId: result.run.id } : current,
+      );
       void queryClient.invalidateQueries({ queryKey: ['agent', agentId] });
       void queryClient.invalidateQueries({ queryKey: ['runs', agentId] });
       void queryClient.invalidateQueries({ queryKey: ['run', agentId] });
