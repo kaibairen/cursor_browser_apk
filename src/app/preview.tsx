@@ -1,12 +1,18 @@
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { AboutPanel } from '../features/settings/AboutPanel';
+import { AccountPanel } from '../features/settings/AccountPanel';
+import { SpeechPanel } from '../features/settings/SpeechPanel';
+import { WorkspacePanel } from '../features/settings/WorkspacePanel';
+import { useVoiceInput } from '../features/speech/useVoiceInput';
 import { colors, spacing } from '../theme';
+import { AccountMenuPopover, SETTINGS_TITLES, type SettingsPageId } from '../ui/accountMenu';
 import { ChatText } from '../ui/chatText';
 import { Composer } from '../ui/composer';
 import { AvatarButton, Segmented } from '../ui/primitives';
+import { SettingsChrome } from '../ui/settingsChrome';
 import { ActionSheet } from '../ui/sheet';
-import { useVoiceInput } from '../features/speech/useVoiceInput';
 
 const DEMO_ROWS = [
   { title: '记忆系统对齐分析', meta: 'neo-cloud-agent', time: '18m', done: true },
@@ -45,8 +51,21 @@ export default function PreviewScreen() {
   const [model, setModel] = useState('默认模型');
   const [picker, setPicker] = useState(false);
   const [more, setMore] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [settingsPage, setSettingsPage] = useState<SettingsPageId | null>(null);
   const homeVoice = useVoiceInput(homeText, setHomeText);
   const followVoice = useVoiceInput(follow, setFollow);
+
+  if (settingsPage) {
+    return (
+      <SettingsChrome title={SETTINGS_TITLES[settingsPage]} onBack={() => setSettingsPage(null)}>
+        {settingsPage === 'account' ? <AccountPanel /> : null}
+        {settingsPage === 'workspace' ? <WorkspacePanel /> : null}
+        {settingsPage === 'speech' ? <SpeechPanel /> : null}
+        {settingsPage === 'about' ? <AboutPanel /> : null}
+      </SettingsChrome>
+    );
+  }
 
   if (page === 'detail') {
     return (
@@ -119,7 +138,7 @@ export default function PreviewScreen() {
       <Text style={styles.banner}>界面预览 · 示例数据，点一条就能进详情</Text>
       <View style={styles.topBar}>
         <Text style={styles.brand}>Agents</Text>
-        <AvatarButton label="思亦" onPress={() => undefined} />
+        <AvatarButton label="思亦" onPress={() => setMenuOpen(true)} />
       </View>
       <ScrollView contentContainerStyle={styles.list} keyboardShouldPersistTaps="handled">
         <Composer
@@ -161,6 +180,17 @@ export default function PreviewScreen() {
         ]}
         onClose={() => setPicker(false)}
         onSelect={setModel}
+      />
+      <AccountMenuPopover
+        visible={menuOpen}
+        name="思亦"
+        email="preview@local"
+        onClose={() => setMenuOpen(false)}
+        onItem={(id) => {
+          setMenuOpen(false);
+          if (id === 'logout') return;
+          setSettingsPage(id);
+        }}
       />
     </View>
   );
