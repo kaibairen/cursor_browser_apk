@@ -155,11 +155,15 @@ export function createRun(
   apiKey: string,
   agentId: string,
   prompt: PromptInput,
-  mode?: ConversationMode,
+  options?: { mode?: ConversationMode; model?: { id: string } },
 ): Promise<CreateRunResponse> {
   return cursorFetch<CreateRunResponse>(apiKey, `/v1/agents/${agentId}/runs`, {
     method: 'POST',
-    body: { prompt, ...(mode ? { mode } : {}) },
+    body: {
+      prompt,
+      ...(options?.mode ? { mode: options.mode } : {}),
+      ...(options?.model ? { model: options.model } : {}),
+    },
   });
 }
 

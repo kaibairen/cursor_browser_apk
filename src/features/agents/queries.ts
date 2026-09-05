@@ -245,9 +245,12 @@ export function useCreateFollowUp(agentId: string) {
   const queryClient = useQueryClient();
   const { handleApiError } = useAuth();
   return useMutation({
-    mutationFn: async (input: { prompt: PromptInput; mode?: ConversationMode }) => {
+    mutationFn: async (input: { prompt: PromptInput; mode?: ConversationMode; model?: { id: string } }) => {
       try {
-        return await createRun(requireApiKey(apiKey), agentId, input.prompt, input.mode);
+        return await createRun(requireApiKey(apiKey), agentId, input.prompt, {
+          mode: input.mode,
+          model: input.model,
+        });
       } catch (error) {
         handleApiError(error);
         throw error;

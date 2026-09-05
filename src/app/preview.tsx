@@ -109,7 +109,8 @@ export default function PreviewScreen() {
             onChangeText={setFollow}
             placeholder="Add a follow up"
             onSubmit={() => setFollow('')}
-            modelLabel="沿用此任务模型"
+            modelLabel={model === '默认模型' ? '沿用此任务模型' : model}
+            onModelPress={() => setPicker('model')}
             listening={followVoice.listening}
             onMicStart={followVoice.onMicStart}
             onMicEnd={followVoice.onMicEnd}

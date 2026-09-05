@@ -22,6 +22,7 @@ import {
   useCreateFollowUp,
   useDeleteAgent,
   useDownloadArtifact,
+  useModels,
   useRun,
   useUsage,
 } from '../../features/agents/queries';
@@ -62,9 +63,12 @@ export default function AgentDetailScreen() {
   const usage = useUsage(agentId);
   const artifacts = useArtifacts(agentId);
   const download = useDownloadArtifact(agentId);
+  const models = useModels();
 
   const [tab, setTab] = useState<'chat' | 'diff'>('chat');
   const [prompt, setPrompt] = useState('');
+  const [modelId, setModelId] = useState('');
+  const [modelPicker, setModelPicker] = useState(false);
   const [images, setImages] = useState<PickedImage[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -88,6 +92,7 @@ export default function AgentDetailScreen() {
     try {
       await followUp.mutateAsync({
         prompt: { text, images: images.length ? await toPromptImages(images) : undefined },
+        model: modelId ? { id: modelId } : undefined,
       });
       setPrompt('');
       setImages([]);
@@ -263,7 +268,12 @@ export default function AgentDetailScreen() {
               placeholder="Add a follow up"
               onSubmit={() => void onFollowUp()}
               submitting={followUp.isPending}
-              modelLabel="沿用此任务模型"
+              modelLabel={
+                modelId
+                  ? models.data?.items.find((item) => item.id === modelId)?.displayName || modelId
+                  : '沿用此任务模型'
+              }
+              onModelPress={() => setModelPicker(true)}
               hint={
                 voice.error ??
                 (busy ? '这一轮还在写。可以先打字，写完再发；现在发可能会被拒绝。' : undefined)
@@ -283,6 +293,21 @@ export default function AgentDetailScreen() {
         </View>
       </View>
 
+      <ActionSheet
+        visible={modelPicker}
+        title="选择模型"
+        message="这一轮追问可以换模型。不选就继续用这条任务当前的模型。"
+        items={[
+          { id: '', label: '沿用此任务模型', hint: '不改模型' },
+          ...(models.data?.items ?? []).map((item) => ({
+            id: item.id,
+            label: item.displayName || item.id,
+            hint: item.description,
+          })),
+        ]}
+        onClose={() => setModelPicker(false)}
+        onSelect={setModelId}
+      />
       <ActionSheet
         visible={menuOpen}
         title={agent.name || '任务'}
