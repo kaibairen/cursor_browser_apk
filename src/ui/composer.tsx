@@ -10,6 +10,8 @@ type ComposerProps = {
   submitting?: boolean;
   modelLabel: string;
   onModelPress?: () => void;
+  repoLabel?: string;
+  onRepoPress?: () => void;
   onAttach?: () => void;
   attachLabel?: string;
   hint?: string;
@@ -19,6 +21,16 @@ type ComposerProps = {
   children?: ReactNode;
 };
 
+function MicIcon({ color }: { color: string }) {
+  return (
+    <View style={styles.micGlyph} accessibilityElementsHidden>
+      <View style={[styles.micHead, { borderColor: color }]} />
+      <View style={[styles.micArc, { borderColor: color }]} />
+      <View style={[styles.micStem, { backgroundColor: color }]} />
+    </View>
+  );
+}
+
 export function Composer({
   value,
   onChangeText,
@@ -27,6 +39,8 @@ export function Composer({
   submitting,
   modelLabel,
   onModelPress,
+  repoLabel,
+  onRepoPress,
   onAttach,
   attachLabel,
   hint,
@@ -66,20 +80,16 @@ export function Composer({
         >
           <Text style={styles.plusText}>+</Text>
         </Pressable>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="按住说话"
-          onPressIn={onMicStart}
-          onPressOut={onMicEnd}
-          disabled={!onMicStart}
-          style={[styles.mic, listening && styles.micLive, { opacity: onMicStart ? 1 : 0.45 }]}
-          hitSlop={8}
-        >
-          <Text style={[styles.micText, listening && styles.micTextLive]}>{listening ? '听' : '语音'}</Text>
-        </Pressable>
+        {onRepoPress ? (
+          <Pressable accessibilityRole="button" onPress={onRepoPress} style={styles.chip} hitSlop={8}>
+            <Text style={styles.chipText} numberOfLines={1}>
+              {repoLabel} ▾
+            </Text>
+          </Pressable>
+        ) : null}
         {onModelPress ? (
-          <Pressable accessibilityRole="button" onPress={onModelPress} style={styles.model} hitSlop={8}>
-            <Text style={styles.modelText} numberOfLines={1}>
+          <Pressable accessibilityRole="button" onPress={onModelPress} style={styles.chip} hitSlop={8}>
+            <Text style={styles.chipText} numberOfLines={1}>
               {modelLabel} ▾
             </Text>
           </Pressable>
@@ -89,6 +99,17 @@ export function Composer({
           </Text>
         )}
         <View style={{ flex: 1 }} />
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="按住说话"
+          onPressIn={onMicStart}
+          onPressOut={onMicEnd}
+          disabled={!onMicStart}
+          style={[styles.mic, listening && styles.micLive, { opacity: onMicStart ? 1 : 0.45 }]}
+          hitSlop={8}
+        >
+          <MicIcon color={listening ? colors.danger : colors.text} />
+        </Pressable>
         <Pressable
           accessibilityRole="button"
           onPress={submit}
@@ -133,21 +154,34 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   plusText: { color: colors.text, fontSize: 18, lineHeight: 20, fontWeight: '500' },
+  chip: { maxWidth: 140, paddingVertical: 4 },
+  chipText: { color: colors.text, fontSize: 13, fontWeight: '500' },
+  modelLocked: { maxWidth: 140, color: colors.muted, fontSize: 13, fontWeight: '500' },
   mic: {
-    minWidth: 40,
-    height: 28,
-    borderRadius: 14,
-    paddingHorizontal: 8,
-    backgroundColor: colors.chip,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
   },
   micLive: { backgroundColor: '#fee2e2' },
-  micText: { color: colors.text, fontSize: 12, fontWeight: '600' },
-  micTextLive: { color: colors.danger },
-  model: { maxWidth: 160, paddingVertical: 4 },
-  modelText: { color: colors.text, fontSize: 13, fontWeight: '500' },
-  modelLocked: { maxWidth: 180, color: colors.muted, fontSize: 13, fontWeight: '500' },
+  micGlyph: { width: 16, height: 18, alignItems: 'center' },
+  micHead: {
+    width: 8,
+    height: 11,
+    borderRadius: 4,
+    borderWidth: 1.6,
+  },
+  micArc: {
+    width: 12,
+    height: 6,
+    marginTop: -1,
+    borderBottomLeftRadius: 7,
+    borderBottomRightRadius: 7,
+    borderWidth: 1.6,
+    borderTopWidth: 0,
+  },
+  micStem: { width: 1.6, height: 3, marginTop: 1, borderRadius: 1 },
   send: {
     width: 32,
     height: 32,

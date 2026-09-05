@@ -29,6 +29,7 @@ export function WorkspacePanel() {
 
   return (
     <>
+      <Text style={styles.meta}>新建任务时在对话框里选仓库。这里只记默认分支、环境和自动开 PR。</Text>
       <Field value={branch} onChangeText={setBranch} placeholder="默认分支，例如 main" />
       <Field value={envName} onChangeText={setEnvName} placeholder="记住的环境名（可选）" />
       <View style={styles.row}>

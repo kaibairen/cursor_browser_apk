@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { groupByProject } from '../features/agents/projects';
 import { AboutPanel } from '../features/settings/AboutPanel';
 import { SpeechPanel } from '../features/settings/SpeechPanel';
 import { WorkspacePanel } from '../features/settings/WorkspacePanel';
@@ -48,7 +49,8 @@ export default function PreviewScreen() {
   const [homeText, setHomeText] = useState('');
   const [follow, setFollow] = useState('');
   const [model, setModel] = useState('默认模型');
-  const [picker, setPicker] = useState(false);
+  const [picker, setPicker] = useState<'model' | 'repo' | null>(null);
+  const [repo, setRepo] = useState('从零开始');
   const [more, setMore] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [settingsPage, setSettingsPage] = useState<SettingsPageId | null>(null);
@@ -145,30 +147,32 @@ export default function PreviewScreen() {
           placeholder="让 Agent 构建、修 bug、探索…"
           onSubmit={() => setPage('detail')}
           modelLabel={model}
-          onModelPress={() => setPicker(true)}
+          onModelPress={() => setPicker('model')}
+          repoLabel={repo}
+          onRepoPress={() => setPicker('repo')}
           listening={homeVoice.listening}
           onMicStart={homeVoice.onMicStart}
           onMicEnd={homeVoice.onMicEnd}
           hint={homeVoice.error ?? undefined}
-        >
-          <View style={styles.sourceChip}>
-            <Text style={styles.sourceText}>从零开始 ▾</Text>
+        />
+        {groupByProject(DEMO_ROWS, (row) => ({ key: row.meta, title: row.meta })).map((section) => (
+          <View key={section.key}>
+            <Text style={styles.group}>{section.title}</Text>
+            {section.data.map((row) => (
+              <Pressable key={row.title} style={styles.row} onPress={() => setPage('detail')}>
+                <Text style={styles.glyph}>{row.done ? '✓' : '⎇'}</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.rowTitle}>{row.title}</Text>
+                  <Text style={styles.rowMeta}>{row.meta}</Text>
+                </View>
+                <Text style={styles.time}>{row.time}</Text>
+              </Pressable>
+            ))}
           </View>
-        </Composer>
-        <Text style={styles.group}>今天</Text>
-        {DEMO_ROWS.map((row) => (
-          <Pressable key={row.title} style={styles.row} onPress={() => setPage('detail')}>
-            <Text style={styles.glyph}>{row.done ? '✓' : '⎇'}</Text>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.rowTitle}>{row.title}</Text>
-              <Text style={styles.rowMeta}>{row.meta}</Text>
-            </View>
-            <Text style={styles.time}>{row.time}</Text>
-          </Pressable>
         ))}
       </ScrollView>
       <ActionSheet
-        visible={picker}
+        visible={picker === 'model'}
         title="选择模型"
         message="只在新建任务时生效。"
         items={[
@@ -176,8 +180,19 @@ export default function PreviewScreen() {
           { id: 'Composer', label: 'Composer' },
           { id: 'Auto', label: 'Auto' },
         ]}
-        onClose={() => setPicker(false)}
+        onClose={() => setPicker(null)}
         onSelect={setModel}
+      />
+      <ActionSheet
+        visible={picker === 'repo'}
+        title="这次用哪个仓库"
+        items={[
+          { id: '从零开始', label: '从零开始', hint: '不绑仓库' },
+          { id: 'neo-cloud-agent', label: 'neo-cloud-agent' },
+          { id: 'cursor_browser_apk', label: 'cursor_browser_apk' },
+        ]}
+        onClose={() => setPicker(null)}
+        onSelect={setRepo}
       />
       <AccountMenuPopover
         visible={menuOpen}
@@ -211,14 +226,6 @@ const styles = StyleSheet.create({
   },
   brand: { color: colors.text, fontSize: 18, fontWeight: '600' },
   list: { paddingHorizontal: spacing.md, paddingBottom: 32 },
-  sourceChip: {
-    alignSelf: 'flex-start',
-    backgroundColor: colors.chip,
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-  },
-  sourceText: { color: colors.text, fontSize: 13, fontWeight: '500' },
   group: { color: colors.muted, fontSize: 14, fontWeight: '600', marginTop: 18, marginBottom: 4 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 12 },
   glyph: { width: 18, textAlign: 'center', color: colors.muted },

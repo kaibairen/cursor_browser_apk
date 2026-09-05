@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { fileName, toolLabel } from '../../features/agents/display';
+import { repoShortName } from '../../features/agents/projects';
 import { pickImages, toPromptImages, type PickedImage } from '../../features/agents/images';
 import {
   isBusyError,
@@ -168,9 +169,16 @@ export default function AgentDetailScreen() {
           <Pressable accessibilityRole="button" onPress={() => router.back()} hitSlop={12}>
             <Text style={styles.backIcon}>‹</Text>
           </Pressable>
-          <Text style={styles.title} numberOfLines={1}>
-            {agent.name || '任务'}
-          </Text>
+          <View style={styles.titleWrap}>
+            <Text style={styles.title} numberOfLines={1}>
+              {agent.name || '任务'}
+            </Text>
+            <Text style={styles.project} numberOfLines={1}>
+              {agent.repos?.[0]?.url
+                ? repoShortName(agent.repos[0].url)
+                : agent.env?.name || '从零开始'}
+            </Text>
+          </View>
           <Pressable accessibilityRole="button" onPress={() => setMenuOpen(true)} hitSlop={12}>
             <Text style={styles.more}>•••</Text>
           </Pressable>
@@ -347,7 +355,9 @@ const styles = StyleSheet.create({
   },
   backIcon: { color: colors.text, fontSize: 28, lineHeight: 30, width: 24 },
   back: { color: colors.text, fontSize: 16 },
-  title: { flex: 1, textAlign: 'center', color: colors.text, fontSize: 16, fontWeight: '600' },
+  titleWrap: { flex: 1, alignItems: 'center', gap: 1 },
+  title: { textAlign: 'center', color: colors.text, fontSize: 16, fontWeight: '600' },
+  project: { textAlign: 'center', color: colors.muted, fontSize: 12 },
   more: { color: colors.text, fontSize: 16, width: 28, textAlign: 'right' },
   tabs: { paddingHorizontal: spacing.md, paddingBottom: 8 },
   content: { paddingHorizontal: spacing.lg, paddingBottom: 24 },

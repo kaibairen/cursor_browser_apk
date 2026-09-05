@@ -25,7 +25,8 @@ import {
 import { CursorApiError } from '../../lib/cursor/errors';
 import { isTerminalRun, type ConversationMode, type CreateAgentRequest, type PromptInput } from '../../lib/cursor/types';
 import { useAuth, useOptionalApiKey } from '../auth/AuthContext';
-import { loadPrefs, rememberRepo, savePrefs } from '../../storage/prefs';
+import { loadPrefs, rememberAgentProjects, rememberRepo, savePrefs } from '../../storage/prefs';
+import { agentProjectEntry } from './projects';
 
 function requireApiKey(apiKey: string | null): string {
   if (!apiKey) {
@@ -65,7 +66,9 @@ export function useAgent(id: string) {
     enabled: Boolean(apiKey && id),
     queryFn: async () => {
       try {
-        return await getAgent(requireApiKey(apiKey), id);
+        const agent = await getAgent(requireApiKey(apiKey), id);
+        await rememberAgentProjects({ [agent.id]: agentProjectEntry(agent) });
+        return agent;
       } catch (error) {
         handleApiError(error);
         throw error;
@@ -212,6 +215,7 @@ export function useCreateAgent() {
       const agentId = `bc-${Crypto.randomUUID()}`;
       try {
         const result = await createAgent(key, { ...body, agentId });
+        await rememberAgentProjects({ [result.agent.id]: agentProjectEntry(result.agent) });
         if (body.repos?.[0]?.url) {
           await rememberRepo(body.repos[0].url);
         }

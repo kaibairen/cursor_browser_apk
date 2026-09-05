@@ -44,6 +44,7 @@ export interface AgentListItem {
   name: string;
   status: AgentStatus;
   env?: AgentEnv;
+  repos?: RepoInput[];
   url: string;
   createdAt: string;
   updatedAt: string;
@@ -51,7 +52,6 @@ export interface AgentListItem {
 }
 
 export interface Agent extends AgentListItem {
-  repos?: RepoInput[];
   workOnCurrentBranch?: boolean;
   autoCreatePR?: boolean;
 }

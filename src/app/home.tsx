@@ -15,11 +15,18 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { agentSubtitle, agentTitle, initials, statusGlyph } from '../features/agents/display';
 import { pickImages, toPromptImages, type PickedImage } from '../features/agents/images';
+import {
+  groupByProject,
+  normalizeRepoUrl,
+  projectOf,
+  repoShortName,
+  useHydrateAgentProjects,
+} from '../features/agents/projects';
 import { useAgentList, useCreateAgent, useModels, useRepositories } from '../features/agents/queries';
 import { useAuth } from '../features/auth/AuthContext';
 import { accountName } from '../features/settings/identity';
-import type { AgentListItem, ConversationMode, CreateAgentRequest } from '../lib/cursor/types';
-import { dateGroup, dateGroupLabel, formatRelative, type DateGroup } from '../lib/format';
+import type { ConversationMode, CreateAgentRequest } from '../lib/cursor/types';
+import { formatRelative } from '../lib/format';
 import { usePrefs } from '../storage/usePrefs';
 import { colors, spacing } from '../theme';
 import { useVoiceInput } from '../features/speech/useVoiceInput';
@@ -28,10 +35,7 @@ import { AccountMenuPopover, SETTINGS_HREF } from '../ui/accountMenu';
 import { AvatarButton } from '../ui/primitives';
 import { ActionSheet } from '../ui/sheet';
 
-type SourceMode = 'none' | 'repo' | 'env';
-type Picker = 'model' | 'source' | null;
-
-const GROUP_ORDER: DateGroup[] = ['today', 'yesterday', 'week', 'older'];
+type Picker = 'model' | 'repo' | null;
 
 export default function AgentsHomeScreen() {
   const router = useRouter();
@@ -47,7 +51,6 @@ export default function AgentsHomeScreen() {
 
   const [query, setQuery] = useState('');
   const [text, setText] = useState('');
-  const [source, setSource] = useState<SourceMode>('none');
   const [repoUrl, setRepoUrl] = useState('');
   const [envName, setEnvName] = useState('');
   const [modelId, setModelId] = useState('');
@@ -57,13 +60,13 @@ export default function AgentsHomeScreen() {
   const [picker, setPicker] = useState<Picker>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const voice = useVoiceInput(text, setText);
+  const projects = useHydrateAgentProjects(items);
 
   useEffect(() => {
     if (!prefs || hydrated) return;
     setRepoUrl(prefs.recentRepos[0] ?? '');
-    setEnvName(prefs.defaultEnvName ?? '');
+    setEnvName('');
     setModelId(prefs.defaultModelId ?? '');
-    setSource(prefs.recentRepos[0] ? 'repo' : prefs.defaultEnvName ? 'env' : 'none');
     setHydrated(true);
   }, [prefs, hydrated]);
 
@@ -85,28 +88,33 @@ export default function AgentsHomeScreen() {
     return match?.displayName || modelId;
   }, [modelId, models.data]);
 
-  const suggestions = useMemo(() => {
+  const repoOptions = useMemo(() => {
     const recent = prefs?.recentRepos ?? [];
     const cached = (repos.data?.items ?? prefs?.cachedRepos ?? []).map((item) => item.url);
-    return [...recent, ...cached.filter((url) => !recent.includes(url))].slice(0, 6);
+    const urls = [...recent, ...cached.filter((url) => !recent.includes(url))].slice(0, 12);
+    const options = [
+      { id: '', label: '从零开始', hint: '不绑仓库' },
+      ...urls.map((url) => ({ id: url, label: repoShortName(url), hint: url })),
+    ];
+    if (prefs?.defaultEnvName) {
+      options.push({ id: `env:${prefs.defaultEnvName}`, label: prefs.defaultEnvName, hint: '云端环境' });
+    }
+    return options;
   }, [prefs, repos.data]);
 
   const sections = useMemo(() => {
-    const filtered = query.trim()
-      ? items.filter((item) => agentTitle(item).toLowerCase().includes(query.trim().toLowerCase()))
+    const q = query.trim().toLowerCase();
+    const filtered = q
+      ? items.filter((item) => {
+          const project = projectOf(item, projects);
+          return (
+            agentTitle(item).toLowerCase().includes(q) ||
+            project.title.toLowerCase().includes(q)
+          );
+        })
       : items;
-    const buckets = new Map<DateGroup, AgentListItem[]>();
-    for (const item of filtered) {
-      const group = dateGroup(item.updatedAt);
-      const current = buckets.get(group) ?? [];
-      current.push(item);
-      buckets.set(group, current);
-    }
-    return GROUP_ORDER.filter((group) => (buckets.get(group) ?? []).length > 0).map((group) => ({
-      title: dateGroupLabel(group),
-      data: buckets.get(group) ?? [],
-    }));
-  }, [items, query]);
+    return groupByProject(filtered, (item) => projectOf(item, projects));
+  }, [items, query, projects]);
 
   async function onSubmit() {
     setError(null);
@@ -117,22 +125,14 @@ export default function AgentsHomeScreen() {
         text: trimmed,
         images: images.length ? await toPromptImages(images) : undefined,
       },
-      autoCreatePR: source === 'repo' ? (prefs?.defaultAutoCreatePR ?? true) : undefined,
+      autoCreatePR: repoUrl.trim() ? (prefs?.defaultAutoCreatePR ?? true) : undefined,
       mode: (prefs?.defaultMode ?? 'agent') as ConversationMode,
       model: modelId ? { id: modelId } : undefined,
     };
-    if (source === 'repo') {
-      if (!repoUrl.trim()) {
-        setError('先选一个仓库，或改成从零开始');
-        return;
-      }
-      body.repos = [{ url: repoUrl.trim(), startingRef: prefs?.defaultBranch || 'main' }];
-    } else if (source === 'env') {
-      if (!envName.trim()) {
-        setError('填写环境名，或改成从零开始');
-        return;
-      }
+    if (envName.trim()) {
       body.env = { type: 'cloud', name: envName.trim() };
+    } else if (repoUrl.trim()) {
+      body.repos = [{ url: normalizeRepoUrl(repoUrl), startingRef: prefs?.defaultBranch || 'main' }];
     }
     try {
       const result = await create.mutateAsync(body);
@@ -144,7 +144,7 @@ export default function AgentsHomeScreen() {
     }
   }
 
-  const sourceLabel = source === 'repo' ? '指定仓库' : source === 'env' ? '云端环境' : '从零开始';
+  const repoLabel = envName.trim() ? envName.trim() : repoUrl.trim() ? repoShortName(repoUrl) : '从零开始';
   const avatar = initials(
     [me?.userFirstName, me?.userLastName].filter(Boolean).join('') || me?.apiKeyName,
     me?.userEmail,
@@ -180,6 +180,8 @@ export default function AgentsHomeScreen() {
                 submitting={create.isPending}
                 modelLabel={modelLabel}
                 onModelPress={() => setPicker('model')}
+                repoLabel={repoLabel}
+                onRepoPress={() => setPicker('repo')}
                 onAttach={() => {
                   void pickImages(images.length)
                     .then((next) => setImages((current) => [...current, ...next]))
@@ -190,42 +192,7 @@ export default function AgentsHomeScreen() {
                 onMicStart={voice.onMicStart}
                 onMicEnd={voice.onMicEnd}
                 hint={voice.error ?? undefined}
-              >
-                <View style={styles.sourceRow}>
-                  <Pressable accessibilityRole="button" onPress={() => setPicker('source')} style={styles.sourceChip}>
-                    <Text style={styles.sourceText}>{sourceLabel} ▾</Text>
-                  </Pressable>
-                </View>
-                {source === 'repo' ? (
-                  <View style={styles.extra}>
-                    <TextInput
-                      value={repoUrl}
-                      onChangeText={setRepoUrl}
-                      placeholder="github.com/org/repo"
-                      placeholderTextColor={colors.muted}
-                      autoCapitalize="none"
-                      style={styles.extraInput}
-                    />
-                    <View style={styles.chips}>
-                      {suggestions.map((url) => (
-                        <Pressable key={url} onPress={() => setRepoUrl(url)} style={styles.miniChip}>
-                          <Text style={styles.miniChipText}>{url.replace('https://github.com/', '')}</Text>
-                        </Pressable>
-                      ))}
-                    </View>
-                  </View>
-                ) : null}
-                {source === 'env' ? (
-                  <TextInput
-                    value={envName}
-                    onChangeText={setEnvName}
-                    placeholder="环境名"
-                    placeholderTextColor={colors.muted}
-                    autoCapitalize="none"
-                    style={styles.extraInput}
-                  />
-                ) : null}
-              </Composer>
+              />
               {error ? <Text style={styles.error}>{error}</Text> : null}
               <View style={styles.sectionHead}>
                 <Text style={styles.sectionTitle}>{sections[0]?.title ?? '最近'}</Text>
@@ -250,7 +217,7 @@ export default function AgentsHomeScreen() {
                   {agentTitle(item)}
                 </Text>
                 <Text style={styles.rowMeta} numberOfLines={1}>
-                  {agentSubtitle(item)}
+                  {agentSubtitle(item, projectOf(item, projects).title)}
                 </Text>
               </View>
               {item.status === 'ACTIVE' ? <View style={styles.dot} /> : null}
@@ -278,15 +245,20 @@ export default function AgentsHomeScreen() {
         onSelect={setModelId}
       />
       <ActionSheet
-        visible={picker === 'source'}
-        title="任务从哪开始"
-        items={[
-          { id: 'none', label: '从零开始', hint: '不绑仓库' },
-          { id: 'repo', label: '指定仓库', hint: '在这个 Git 仓库里改' },
-          { id: 'env', label: '云端环境', hint: '用已有 Cloud 环境' },
-        ]}
+        visible={picker === 'repo'}
+        title="这次用哪个仓库"
+        message="只对这一条对话生效。列表会按项目分开。"
+        items={repoOptions}
         onClose={() => setPicker(null)}
-        onSelect={(id) => setSource(id as SourceMode)}
+        onSelect={(id) => {
+          if (id.startsWith('env:')) {
+            setEnvName(id.slice(4));
+            setRepoUrl('');
+            return;
+          }
+          setEnvName('');
+          setRepoUrl(id);
+        }}
       />
       <AccountMenuPopover
         visible={menuOpen}
@@ -318,28 +290,6 @@ const styles = StyleSheet.create({
   brand: { color: colors.text, fontSize: 18, fontWeight: '600' },
   list: { paddingHorizontal: spacing.md, paddingBottom: 40 },
   headerBlock: { gap: 12, paddingBottom: 8 },
-  sourceRow: { flexDirection: 'row' },
-  sourceChip: {
-    backgroundColor: colors.chip,
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-  },
-  sourceText: { color: colors.text, fontSize: 13, fontWeight: '500' },
-  extra: { gap: 8 },
-  extraInput: {
-    color: colors.text,
-    fontSize: 14,
-    paddingVertical: 4,
-  },
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  miniChip: {
-    backgroundColor: colors.chip,
-    borderRadius: 999,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  miniChipText: { color: colors.muted, fontSize: 12 },
   error: { color: colors.danger, fontSize: 13 },
   sectionHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 },
   sectionTitle: { color: colors.muted, fontSize: 14, fontWeight: '600' },
