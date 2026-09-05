@@ -1,6 +1,6 @@
 import { consumeSseBuffer, parseSseBlock } from '../src/lib/cursor/sseParse.ts';
 import { applySseEvent, ensureThinkingLine, type TranscriptLine } from '../src/lib/cursor/sseApply.ts';
-import { isLocalUserId } from '../src/features/agents/conversationView.ts';
+import { isLocalUserId, mergePreservingLocalUsers, seedUserMessage } from '../src/features/agents/conversationView.ts';
 
 const parsed = parseSseBlock('id: 1\nevent: assistant\ndata: {"text":"hi"}');
 if (!parsed || parsed.event !== 'assistant' || parsed.id !== '1' || parsed.data !== '{"text":"hi"}') {
@@ -85,6 +85,22 @@ if (ensureThinkingLine(withPlaceholder) !== withPlaceholder) {
 
 if (!isLocalUserId('local-user:你好') || !isLocalUserId('pending-1') || isLocalUserId('msg-server')) {
   throw new Error('isLocalUserId failed');
+}
+
+const mergedDup = mergePreservingLocalUsers(
+  [{ id: 's1', type: 'user_message', text: '你好吗' }],
+  [
+    { id: 'pending-1', type: 'user_message', text: '你好吗' },
+    { id: 'pending-2', type: 'user_message', text: '你好吗' },
+  ],
+);
+if (mergedDup.length !== 2 || mergedDup[1]?.id !== 'pending-2') {
+  throw new Error(`duplicate user texts should keep the extra local copy: ${JSON.stringify(mergedDup)}`);
+}
+
+const seeded = seedUserMessage({ id: 'a', messages: [{ id: 's1', type: 'user_message', text: '你好吗' }] }, 'a', '你好吗');
+if (seeded.messages.length !== 2) {
+  throw new Error('seedUserMessage should allow the same text on a later turn');
 }
 
 console.log('sse parse + apply ok');

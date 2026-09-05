@@ -38,7 +38,7 @@ import { isTerminalRun } from '../../lib/cursor/types';
 import { formatBytes } from '../../lib/format';
 import { colors, spacing } from '../../theme';
 import {
-  isLocalUserId,
+  countUserTexts,
   isUserMessage,
   mergePreservingLocalUsers,
 } from '../../features/agents/conversationView';
@@ -98,15 +98,15 @@ export default function AgentDetailScreen() {
     if (conversation.isFetching) return;
     const messages = conversation.data?.messages ?? [];
     if (!messages.length) return;
-    setPendingUsers((current) =>
-      current.filter(
-        (item) =>
-          !messages.some(
-            (message) =>
-              isUserMessage(message) && message.text === item.text && !isLocalUserId(message.id),
-          ),
-      ),
-    );
+    setPendingUsers((current) => {
+      const confirmed = countUserTexts(messages, { confirmedOnly: true });
+      const seen = new Map<string, number>();
+      return current.filter((item) => {
+        const next = (seen.get(item.text) ?? 0) + 1;
+        seen.set(item.text, next);
+        return next > (confirmed.get(item.text) ?? 0);
+      });
+    });
   }, [conversation.data?.messages, conversation.isFetching]);
 
   useEffect(() => {
@@ -286,9 +286,9 @@ export default function AgentDetailScreen() {
                       Boolean(streamAssistant) && !isUserMessage(item) && index === history.length - 1;
                     if (skipTrailingAssistant) return null;
                     if (isUserMessage(item)) {
-                      return <UserBubble key={`user:${item.text}`} text={item.text} />;
+                      return <UserBubble key={`u:${index}:${item.text}`} text={item.text} />;
                     }
-                    return <ChatText key={item.id} text={item.text} />;
+                    return <ChatText key={`a:${index}:${item.id}`} text={item.text} />;
                   })
                 : null}
               {!showChatSpinner && showThinking ? (
