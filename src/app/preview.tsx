@@ -50,7 +50,7 @@ export default function PreviewScreen() {
   const [follow, setFollow] = useState('');
   const [model, setModel] = useState('默认模型');
   const [picker, setPicker] = useState<'model' | 'repo' | null>(null);
-  const [repo, setRepo] = useState('从零开始');
+  const [repo, setRepo] = useState('默认仓库');
   const [more, setMore] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [settingsPage, setSettingsPage] = useState<SettingsPageId | null>(null);
@@ -185,8 +185,9 @@ export default function PreviewScreen() {
       <ActionSheet
         visible={picker === 'repo'}
         title="这次用哪个仓库"
+        message="默认仓库在右上角头像里配置。"
         items={[
-          { id: '从零开始', label: '从零开始', hint: '不绑仓库' },
+          { id: '默认仓库', label: '默认仓库', hint: 'neo-cloud-agent' },
           { id: 'neo-cloud-agent', label: 'neo-cloud-agent' },
           { id: 'cursor_browser_apk', label: 'cursor_browser_apk' },
         ]}

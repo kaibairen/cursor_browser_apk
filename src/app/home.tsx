@@ -20,6 +20,7 @@ import {
   normalizeRepoUrl,
   projectOf,
   repoShortName,
+  resolvedDefaultRepo,
   useHydrateAgentProjects,
 } from '../features/agents/projects';
 import { useAgentList, useCreateAgent, useModels, useRepositories } from '../features/agents/queries';
@@ -42,7 +43,7 @@ export default function AgentsHomeScreen() {
   const insets = useSafeAreaInsets();
   const focused = useIsFocused();
   const { me, signOut } = useAuth();
-  const { prefs } = usePrefs();
+  const { prefs, reload } = usePrefs();
   const models = useModels();
   const repos = useRepositories();
   const create = useCreateAgent();
@@ -63,8 +64,12 @@ export default function AgentsHomeScreen() {
   const projects = useHydrateAgentProjects(items);
 
   useEffect(() => {
+    if (focused) void reload();
+  }, [focused, reload]);
+
+  useEffect(() => {
     if (!prefs || hydrated) return;
-    setRepoUrl(prefs.recentRepos[0] ?? '');
+    setRepoUrl('');
     setEnvName('');
     setModelId(prefs.defaultModelId ?? '');
     setHydrated(true);
@@ -88,19 +93,25 @@ export default function AgentsHomeScreen() {
     return match?.displayName || modelId;
   }, [modelId, models.data]);
 
+  const defaultRepo = resolvedDefaultRepo(prefs);
+
   const repoOptions = useMemo(() => {
     const recent = prefs?.recentRepos ?? [];
     const cached = (repos.data?.items ?? prefs?.cachedRepos ?? []).map((item) => item.url);
-    const urls = [...recent, ...cached.filter((url) => !recent.includes(url))].slice(0, 12);
+    const unique = [...recent, ...cached].filter((url, index, all) => url !== defaultRepo && all.indexOf(url) === index).slice(0, 12);
     const options = [
-      { id: '', label: '从零开始', hint: '不绑仓库' },
-      ...urls.map((url) => ({ id: url, label: repoShortName(url), hint: url })),
+      {
+        id: 'default',
+        label: '默认仓库',
+        hint: defaultRepo ? repoShortName(defaultRepo) : '点右上角头像配置',
+      },
+      ...unique.map((url) => ({ id: url, label: repoShortName(url), hint: url })),
     ];
     if (prefs?.defaultEnvName) {
       options.push({ id: `env:${prefs.defaultEnvName}`, label: prefs.defaultEnvName, hint: '云端环境' });
     }
     return options;
-  }, [prefs, repos.data]);
+  }, [prefs, repos.data, defaultRepo]);
 
   const sections = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -125,14 +136,18 @@ export default function AgentsHomeScreen() {
         text: trimmed,
         images: images.length ? await toPromptImages(images) : undefined,
       },
-      autoCreatePR: repoUrl.trim() ? (prefs?.defaultAutoCreatePR ?? true) : undefined,
       mode: (prefs?.defaultMode ?? 'agent') as ConversationMode,
       model: modelId ? { id: modelId } : undefined,
     };
+    const chosenRepo = envName.trim() ? '' : repoUrl.trim() || defaultRepo;
     if (envName.trim()) {
       body.env = { type: 'cloud', name: envName.trim() };
-    } else if (repoUrl.trim()) {
-      body.repos = [{ url: normalizeRepoUrl(repoUrl), startingRef: prefs?.defaultBranch || 'main' }];
+    } else if (chosenRepo) {
+      body.autoCreatePR = prefs?.defaultAutoCreatePR ?? true;
+      body.repos = [{ url: normalizeRepoUrl(chosenRepo), startingRef: prefs?.defaultBranch || 'main' }];
+    } else {
+      setError('先到右上角设置默认仓库');
+      return;
     }
     try {
       const result = await create.mutateAsync(body);
@@ -144,7 +159,13 @@ export default function AgentsHomeScreen() {
     }
   }
 
-  const repoLabel = envName.trim() ? envName.trim() : repoUrl.trim() ? repoShortName(repoUrl) : '从零开始';
+  const repoLabel = envName.trim()
+    ? envName.trim()
+    : repoUrl.trim()
+      ? repoShortName(repoUrl)
+      : defaultRepo
+        ? repoShortName(defaultRepo)
+        : '默认仓库';
   const avatar = initials(
     [me?.userFirstName, me?.userLastName].filter(Boolean).join('') || me?.apiKeyName,
     me?.userEmail,
@@ -246,10 +267,15 @@ export default function AgentsHomeScreen() {
       <ActionSheet
         visible={picker === 'repo'}
         title="这次用哪个仓库"
-        message="只对这一条对话生效。列表会按项目分开。"
+        message="默认仓库在右上角头像里配置。这里可以临时换一个。"
         items={repoOptions}
         onClose={() => setPicker(null)}
         onSelect={(id) => {
+          if (id === 'default') {
+            setEnvName('');
+            setRepoUrl('');
+            return;
+          }
           if (id.startsWith('env:')) {
             setEnvName(id.slice(4));
             setRepoUrl('');

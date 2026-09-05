@@ -5,13 +5,13 @@ export function agentTitle(item: Pick<AgentListItem, 'name' | 'id'>): string {
 }
 
 export function agentSubtitle(item: AgentListItem, projectTitle?: string): string {
-  if (projectTitle && projectTitle !== '从零开始') return projectTitle;
+  if (projectTitle && projectTitle !== '未绑定仓库') return projectTitle;
   if (item.env?.name) return item.env.name;
   if (item.repos?.[0]?.url) {
     return item.repos[0].url.replace(/^https?:\/\/(github\.com\/)?/, '');
   }
   if (item.env?.type && item.env.type !== 'cloud') return item.env.type;
-  return '从零开始';
+  return '未绑定仓库';
 }
 
 export function initials(name?: string | null, email?: string | null): string {

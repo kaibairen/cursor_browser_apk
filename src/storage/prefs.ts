@@ -10,6 +10,7 @@ export type AgentProject = {
 
 export type AppPrefs = {
   recentRepos: string[];
+  defaultRepoUrl?: string;
   defaultBranch: string;
   defaultAutoCreatePR: boolean;
   defaultMode: ConversationMode;

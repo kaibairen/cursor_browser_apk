@@ -176,7 +176,7 @@ export default function AgentDetailScreen() {
             <Text style={styles.project} numberOfLines={1}>
               {agent.repos?.[0]?.url
                 ? repoShortName(agent.repos[0].url)
-                : agent.env?.name || '从零开始'}
+                : agent.env?.name || '未绑定仓库'}
             </Text>
           </View>
           <Pressable accessibilityRole="button" onPress={() => setMenuOpen(true)} hitSlop={12}>

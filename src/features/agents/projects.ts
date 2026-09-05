@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getAgent } from '../../lib/cursor/client';
 import type { Agent, AgentListItem } from '../../lib/cursor/types';
-import { loadPrefs, rememberAgentProjects, type AgentProject } from '../../storage/prefs';
+import { loadPrefs, rememberAgentProjects, type AgentProject, type AppPrefs } from '../../storage/prefs';
 import { useOptionalApiKey } from '../auth/AuthContext';
 
 export function repoShortName(url: string): string {
@@ -30,7 +30,12 @@ export function projectOf(
   if (envName) {
     return { key: `env:${envName.toLowerCase()}`, title: envName };
   }
-  return { key: 'scratch', title: '从零开始' };
+  return { key: 'unbound', title: '未绑定仓库' };
+}
+
+export function resolvedDefaultRepo(prefs: AppPrefs | null | undefined): string {
+  if (!prefs) return '';
+  return prefs.defaultRepoUrl?.trim() || prefs.recentRepos[0] || prefs.cachedRepos?.[0]?.url || '';
 }
 
 export function agentProjectEntry(agent: Pick<Agent, 'id' | 'env' | 'repos'>): AgentProject {
