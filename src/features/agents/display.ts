@@ -22,18 +22,34 @@ export function initials(name?: string | null, email?: string | null): string {
 export function toolLabel(name: string): string {
   const map: Record<string, string> = {
     read_file: '读文件',
+    Read: '读文件',
     write_file: '写文件',
+    Write: '写文件',
     edit_file: '改文件',
+    Edit: '改文件',
     apply_patch: '改代码',
+    StrReplace: '改代码',
     run_terminal_cmd: '运行命令',
+    Shell: '运行命令',
     grep: '搜索',
+    Grep: '搜索',
     glob: '找文件',
+    Glob: '找文件',
     list_dir: '列目录',
     codebase_search: '搜代码',
     web_search: '搜网页',
+    WebSearch: '搜网页',
+    WebFetch: '抓网页',
+    Task: '子任务',
+    AwaitShell: '等待',
+    Delete: '删文件',
+    call_mcp_tool: '工具',
+    CallMcpTool: '工具',
     mcp: '工具',
   };
-  return map[name] ?? name.replaceAll('_', ' ');
+  const trimmed = name.trim();
+  if (!trimmed || trimmed === 'tool') return '工具';
+  return map[trimmed] ?? trimmed.replaceAll('_', ' ');
 }
 
 export function fileName(path: string): string {

@@ -24,7 +24,7 @@ export type StreamApplyResult = {
 
 export function ensureThinkingLine(lines: TranscriptLine[]): TranscriptLine[] {
   if (lines.some((line) => line.kind === 'thinking')) return lines;
-  return [...lines, { kind: 'thinking', text: '', done: false }];
+  return [{ kind: 'thinking', text: '', done: false }, ...lines];
 }
 
 export function applySseEvent(

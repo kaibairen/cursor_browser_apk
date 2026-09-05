@@ -11,7 +11,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { fileName, toolLabel } from '../../features/agents/display';
+import { fileName } from '../../features/agents/display';
 import { repoShortName } from '../../features/agents/projects';
 import { pickImages, toPromptImages, type PickedImage } from '../../features/agents/images';
 import {
@@ -47,7 +47,7 @@ import {
 import { ArtifactViewer, type ArtifactView } from '../../ui/artifactViewer';
 import { ChatLoading } from '../../ui/chatLoading';
 import { ChatText } from '../../ui/chatText';
-import { ThinkingBlock } from '../../ui/thinkingBlock';
+import { TurnTimeline } from '../../ui/turnTimeline';
 import { UserBubble } from '../../ui/userBubble';
 import { Composer } from '../../ui/composer';
 import { githubHttpsUrl, openExternal } from '../../ui/openUrl';
@@ -289,7 +289,6 @@ export default function AgentDetailScreen() {
   const showChatSpinner = !hasLocalSend && history.length === 0 && conversation.isLoading;
   const streamAssistant = stream.lines.find((line) => line.kind === 'assistant' && line.text);
   const streamThinking = stream.lines.find((line) => line.kind === 'thinking');
-  const streamTools = stream.lines.filter((line) => line.kind === 'tool');
   const thinkingBusy =
     streamThinking?.kind === 'thinking' && Boolean(streamThinking.text) && !streamThinking.done;
   const showLiveAssistant = Boolean(streamAssistant) || (stream.live && hasUser);
@@ -401,44 +400,13 @@ export default function AgentDetailScreen() {
                       return (
                         <View key={`u:${index}:${item.text}`} style={styles.turn}>
                           <UserBubble text={item.text} />
-                          {index === latestUserIndex && showThinking ? (
-                            <ThinkingBlock
-                              text={
-                                streamThinking?.kind === 'thinking' && streamThinking.text
-                                  ? streamThinking.text
-                                  : (keptThinking?.text ?? '')
-                              }
-                              done={thinkingDone && !thinkingBusy}
-                              durationMs={
-                                streamThinking?.kind === 'thinking'
-                                  ? streamThinking.durationMs
-                                  : keptThinking?.durationMs
-                              }
-                              defaultOpen={!thinkingDone || thinkingBusy}
+                          {index === latestUserIndex ? (
+                            <TurnTimeline
+                              lines={stream.lines}
+                              keptThinking={keptThinking}
+                              live={stream.live && !runDone}
+                              thinkingDone={thinkingDone && !thinkingBusy}
                             />
-                          ) : null}
-                          {index === latestUserIndex
-                            ? streamTools.map((line, toolIndex) =>
-                                line.kind === 'tool' ? (
-                                  <Text key={`${line.callId}-${toolIndex}`} style={styles.tool}>
-                                    {toolLabel(line.name)}
-                                    {line.status === 'completed' ? ' · 完成' : '…'}
-                                  </Text>
-                                ) : null,
-                              )
-                            : null}
-                          {index === latestUserIndex &&
-                          !thinkingBusy &&
-                          streamAssistant &&
-                          streamAssistant.kind === 'assistant' ? (
-                            stream.live ? (
-                              <Text style={styles.liveText}>
-                                {streamAssistant.text}
-                                <Text style={styles.caret}>▍</Text>
-                              </Text>
-                            ) : (
-                              <ChatText text={streamAssistant.text} />
-                            )
                           ) : null}
                         </View>
                       );
@@ -446,31 +414,13 @@ export default function AgentDetailScreen() {
                     return <ChatText key={`a:${index}:${item.id}`} text={item.text} />;
                   })
                 : null}
-              {!showChatSpinner && latestUserIndex < 0 && showThinking ? (
-                <ThinkingBlock
-                  text={
-                    streamThinking?.kind === 'thinking' && streamThinking.text
-                      ? streamThinking.text
-                      : (keptThinking?.text ?? '')
-                  }
-                  done={thinkingDone && !thinkingBusy}
-                  durationMs={
-                    streamThinking?.kind === 'thinking'
-                      ? streamThinking.durationMs
-                      : keptThinking?.durationMs
-                  }
-                  defaultOpen={!thinkingDone || thinkingBusy}
+              {!showChatSpinner && latestUserIndex < 0 ? (
+                <TurnTimeline
+                  lines={stream.lines}
+                  keptThinking={showThinking ? keptThinking : null}
+                  live={stream.live && !runDone}
+                  thinkingDone={thinkingDone && !thinkingBusy}
                 />
-              ) : null}
-              {!showChatSpinner && latestUserIndex < 0 && !thinkingBusy && streamAssistant && streamAssistant.kind === 'assistant' ? (
-                stream.live ? (
-                  <Text style={styles.liveText}>
-                    {streamAssistant.text}
-                    <Text style={styles.caret}>▍</Text>
-                  </Text>
-                ) : (
-                  <ChatText text={streamAssistant.text} />
-                )
               ) : null}
               {!showChatSpinner && showResultFallback && run?.result ? <ChatText text={run.result} /> : null}
             </View>

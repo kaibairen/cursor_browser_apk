@@ -17,6 +17,7 @@ import {
 import { isLocalUserId, lastAssistantAfter, lastUserIndex, mergeConversation, mergePreservingLocalUsers, seedUserMessage } from '../src/features/agents/conversationView.ts';
 import { eventPhase, prepareBurst, replayDelayMs } from '../src/lib/cursor/ssePace.ts';
 import { defaultCatalogModelId, resolveStoredModelId } from '../src/features/agents/models.ts';
+import { toolLabel } from '../src/features/agents/display.ts';
 import { readModelId } from '../src/lib/cursor/modelId.ts';
 
 const parsed = parseSseBlock('id: 1\nevent: assistant\ndata: {"text":"hi"}');
@@ -122,6 +123,10 @@ if (interactionOnly.lines[1]?.kind !== 'assistant' || interactionOnly.lines[1].t
 const withPlaceholder = ensureThinkingLine([]);
 if (withPlaceholder.length !== 1 || withPlaceholder[0]?.kind !== 'thinking' || withPlaceholder[0].text) {
   throw new Error('ensureThinkingLine should add an empty thinking row');
+}
+const prepended = ensureThinkingLine([{ kind: 'tool', callId: 't1', name: 'Shell', status: 'running' }]);
+if (prepended[0]?.kind !== 'thinking' || prepended[1]?.kind !== 'tool') {
+  throw new Error('ensureThinkingLine should put thinking first');
 }
 if (ensureThinkingLine(withPlaceholder) !== withPlaceholder) {
   throw new Error('ensureThinkingLine should be idempotent');
@@ -230,6 +235,24 @@ if (readModelId({ model: { id: 'composer-2' } }) !== 'composer-2') {
 }
 if (readModelId({ modelId: 'grok' }) !== 'grok') {
   throw new Error('readModelId string failed');
+}
+
+const timeline = play([
+  { event: 'thinking', data: '{"text":"先看仓库"}' },
+  { event: 'tool_call', data: '{"callId":"1","name":"Shell","status":"completed"}' },
+  { event: 'assistant', data: '{"text":"apps 里有 web"}' },
+  { event: 'tool_call', data: '{"callId":"2","name":"Read","status":"completed"}' },
+  { event: 'assistant', data: '{"text":"web 下面是 expo"}' },
+]);
+if (
+  timeline.lines.map((line) => line.kind).join(',') !== 'thinking,tool,assistant,tool,assistant' ||
+  timeline.lines[2]?.kind !== 'assistant' ||
+  timeline.lines[2].text !== 'apps 里有 web'
+) {
+  throw new Error(`timeline should stay chronological: ${JSON.stringify(timeline.lines)}`);
+}
+if (toolLabel('Shell') !== '运行命令' || toolLabel('tool') !== '工具') {
+  throw new Error('toolLabel should map official names');
 }
 
 const refused = friendlyNetworkError(new TypeError('Failed to fetch'));

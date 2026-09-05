@@ -16,7 +16,7 @@ export function ThinkingBlock({
   const [open, setOpen] = useState(defaultOpen ?? !done);
 
   useEffect(() => {
-    if (!done) setOpen(true);
+    setOpen(!done);
   }, [done]);
 
   const label = done
