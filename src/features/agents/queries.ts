@@ -24,20 +24,27 @@ import {
 } from '../../lib/cursor/client';
 import { CursorApiError } from '../../lib/cursor/errors';
 import { isTerminalRun, type ConversationMode, type CreateAgentRequest, type PromptInput } from '../../lib/cursor/types';
-import { useApiKey, useAuth } from '../auth/AuthContext';
+import { useAuth, useOptionalApiKey } from '../auth/AuthContext';
 import { loadPrefs, rememberRepo, savePrefs } from '../../storage/prefs';
+
+function requireApiKey(apiKey: string | null): string {
+  if (!apiKey) {
+    throw new Error('Not signed in');
+  }
+  return apiKey;
+}
 
 export function useAgentList(options: { includeArchived?: boolean; enabled?: boolean } = {}) {
   const includeArchived = options.includeArchived ?? true;
   const enabled = options.enabled ?? true;
-  const apiKey = useApiKey();
+  const apiKey = useOptionalApiKey();
   const { handleApiError } = useAuth();
   return useInfiniteQuery({
     queryKey: ['agents', includeArchived],
-    enabled,
+    enabled: Boolean(apiKey) && enabled,
     queryFn: async ({ pageParam }) => {
       try {
-        return await listAgents(apiKey, { limit: 20, cursor: pageParam, includeArchived });
+        return await listAgents(requireApiKey(apiKey), { limit: 20, cursor: pageParam, includeArchived });
       } catch (error) {
         handleApiError(error);
         throw error;
@@ -45,19 +52,20 @@ export function useAgentList(options: { includeArchived?: boolean; enabled?: boo
     },
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage) => lastPage.nextCursor,
-    refetchInterval: enabled ? 18_000 : false,
+    refetchInterval: Boolean(apiKey) && enabled ? 18_000 : false,
     refetchIntervalInBackground: false,
   });
 }
 
 export function useAgent(id: string) {
-  const apiKey = useApiKey();
+  const apiKey = useOptionalApiKey();
   const { handleApiError } = useAuth();
   return useQuery({
     queryKey: ['agent', id],
+    enabled: Boolean(apiKey && id),
     queryFn: async () => {
       try {
-        return await getAgent(apiKey, id);
+        return await getAgent(requireApiKey(apiKey), id);
       } catch (error) {
         handleApiError(error);
         throw error;
@@ -69,14 +77,14 @@ export function useAgent(id: string) {
 }
 
 export function useRun(agentId: string, runId: string | undefined, live: boolean) {
-  const apiKey = useApiKey();
+  const apiKey = useOptionalApiKey();
   const { handleApiError } = useAuth();
   return useQuery({
     queryKey: ['run', agentId, runId],
-    enabled: Boolean(runId),
+    enabled: Boolean(apiKey && runId),
     queryFn: async () => {
       try {
-        return await getRun(apiKey, agentId, runId!);
+        return await getRun(requireApiKey(apiKey), agentId, runId!);
       } catch (error) {
         handleApiError(error);
         throw error;
@@ -93,13 +101,14 @@ export function useRun(agentId: string, runId: string | undefined, live: boolean
 }
 
 export function useRuns(agentId: string) {
-  const apiKey = useApiKey();
+  const apiKey = useOptionalApiKey();
   const { handleApiError } = useAuth();
   return useQuery({
     queryKey: ['runs', agentId],
+    enabled: Boolean(apiKey && agentId),
     queryFn: async () => {
       try {
-        return await listRuns(apiKey, agentId, { limit: 20 });
+        return await listRuns(requireApiKey(apiKey), agentId, { limit: 20 });
       } catch (error) {
         handleApiError(error);
         throw error;
@@ -109,13 +118,14 @@ export function useRuns(agentId: string) {
 }
 
 export function useModels() {
-  const apiKey = useApiKey();
+  const apiKey = useOptionalApiKey();
   const { handleApiError } = useAuth();
   return useQuery({
     queryKey: ['models'],
+    enabled: Boolean(apiKey),
     queryFn: async () => {
       try {
-        return await listModels(apiKey);
+        return await listModels(requireApiKey(apiKey));
       } catch (error) {
         handleApiError(error);
         throw error;
@@ -126,10 +136,11 @@ export function useModels() {
 }
 
 export function useRepositories() {
-  const apiKey = useApiKey();
+  const apiKey = useOptionalApiKey();
   const { handleApiError } = useAuth();
   return useQuery({
     queryKey: ['repositories'],
+    enabled: Boolean(apiKey),
     queryFn: async () => {
       const prefs = await loadPrefs();
       const age = prefs.lastRepoRefreshAt ? Date.now() - prefs.lastRepoRefreshAt : Number.POSITIVE_INFINITY;
@@ -137,7 +148,7 @@ export function useRepositories() {
         return { items: prefs.cachedRepos };
       }
       try {
-        const result = await listRepositories(apiKey);
+        const result = await listRepositories(requireApiKey(apiKey));
         await savePrefs({
           ...prefs,
           cachedRepos: result.items,
@@ -158,13 +169,14 @@ export function useRepositories() {
 }
 
 export function useUsage(agentId: string) {
-  const apiKey = useApiKey();
+  const apiKey = useOptionalApiKey();
   const { handleApiError } = useAuth();
   return useQuery({
     queryKey: ['usage', agentId],
+    enabled: Boolean(apiKey && agentId),
     queryFn: async () => {
       try {
-        return await getAgentUsage(apiKey, agentId);
+        return await getAgentUsage(requireApiKey(apiKey), agentId);
       } catch (error) {
         handleApiError(error);
         throw error;
@@ -174,13 +186,14 @@ export function useUsage(agentId: string) {
 }
 
 export function useArtifacts(agentId: string) {
-  const apiKey = useApiKey();
+  const apiKey = useOptionalApiKey();
   const { handleApiError } = useAuth();
   return useQuery({
     queryKey: ['artifacts', agentId],
+    enabled: Boolean(apiKey && agentId),
     queryFn: async () => {
       try {
-        return await listArtifacts(apiKey, agentId);
+        return await listArtifacts(requireApiKey(apiKey), agentId);
       } catch (error) {
         handleApiError(error);
         throw error;
@@ -190,14 +203,15 @@ export function useArtifacts(agentId: string) {
 }
 
 export function useCreateAgent() {
-  const apiKey = useApiKey();
+  const apiKey = useOptionalApiKey();
   const queryClient = useQueryClient();
   const { handleApiError } = useAuth();
   return useMutation({
     mutationFn: async (body: Omit<CreateAgentRequest, 'agentId'>) => {
+      const key = requireApiKey(apiKey);
       const agentId = `bc-${Crypto.randomUUID()}`;
       try {
-        const result = await createAgent(apiKey, { ...body, agentId });
+        const result = await createAgent(key, { ...body, agentId });
         if (body.repos?.[0]?.url) {
           await rememberRepo(body.repos[0].url);
         }
@@ -223,13 +237,13 @@ export function useCreateAgent() {
 }
 
 export function useCreateFollowUp(agentId: string) {
-  const apiKey = useApiKey();
+  const apiKey = useOptionalApiKey();
   const queryClient = useQueryClient();
   const { handleApiError } = useAuth();
   return useMutation({
     mutationFn: async (input: { prompt: PromptInput; mode?: ConversationMode }) => {
       try {
-        return await createRun(apiKey, agentId, input.prompt, input.mode);
+        return await createRun(requireApiKey(apiKey), agentId, input.prompt, input.mode);
       } catch (error) {
         handleApiError(error);
         throw error;
@@ -245,13 +259,13 @@ export function useCreateFollowUp(agentId: string) {
 }
 
 export function useCancelRun(agentId: string) {
-  const apiKey = useApiKey();
+  const apiKey = useOptionalApiKey();
   const queryClient = useQueryClient();
   const { handleApiError } = useAuth();
   return useMutation({
     mutationFn: async (runId: string) => {
       try {
-        return await cancelRun(apiKey, agentId, runId);
+        return await cancelRun(requireApiKey(apiKey), agentId, runId);
       } catch (error) {
         handleApiError(error);
         throw error;
@@ -265,13 +279,14 @@ export function useCancelRun(agentId: string) {
 }
 
 export function useArchiveAgent(agentId: string) {
-  const apiKey = useApiKey();
+  const apiKey = useOptionalApiKey();
   const queryClient = useQueryClient();
   const { handleApiError } = useAuth();
   return useMutation({
     mutationFn: async (archived: boolean) => {
+      const key = requireApiKey(apiKey);
       try {
-        return archived ? await unarchiveAgent(apiKey, agentId) : await archiveAgent(apiKey, agentId);
+        return archived ? await unarchiveAgent(key, agentId) : await archiveAgent(key, agentId);
       } catch (error) {
         handleApiError(error);
         throw error;
@@ -285,13 +300,13 @@ export function useArchiveAgent(agentId: string) {
 }
 
 export function useDeleteAgent() {
-  const apiKey = useApiKey();
+  const apiKey = useOptionalApiKey();
   const queryClient = useQueryClient();
   const { handleApiError } = useAuth();
   return useMutation({
     mutationFn: async (agentId: string) => {
       try {
-        return await deleteAgent(apiKey, agentId);
+        return await deleteAgent(requireApiKey(apiKey), agentId);
       } catch (error) {
         handleApiError(error);
         throw error;
@@ -304,12 +319,12 @@ export function useDeleteAgent() {
 }
 
 export function useDownloadArtifact(agentId: string) {
-  const apiKey = useApiKey();
+  const apiKey = useOptionalApiKey();
   const { handleApiError } = useAuth();
   return useMutation({
     mutationFn: async (path: string) => {
       try {
-        return await downloadArtifact(apiKey, agentId, path);
+        return await downloadArtifact(requireApiKey(apiKey), agentId, path);
       } catch (error) {
         handleApiError(error);
         throw error;

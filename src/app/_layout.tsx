@@ -25,7 +25,7 @@ function AuthGate({ children }: { children: ReactNode }) {
   const root = segments[0];
   const onSetup = root === 'setup';
   const onPreview = root === 'preview';
-  const onProtected = root === 'home' || root === 'agent' || root === 'settings';
+  const publicRoute = onSetup || onPreview || root == null;
 
   useEffect(() => {
     if (!ready) {
@@ -33,12 +33,12 @@ function AuthGate({ children }: { children: ReactNode }) {
     }
     if (!signedIn && !onSetup && !onPreview) {
       router.replace('/setup');
-    } else if (signedIn && onSetup) {
+    } else if (signedIn && (onSetup || root === '(tabs)')) {
       router.replace('/home');
     }
-  }, [ready, signedIn, onSetup, onPreview, router]);
+  }, [ready, signedIn, onSetup, onPreview, root, router]);
 
-  if (!ready || (!signedIn && onProtected)) {
+  if (!ready || (!signedIn && !publicRoute)) {
     return (
       <View style={{ flex: 1, backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center' }}>
         <ActivityIndicator color={colors.accent} />

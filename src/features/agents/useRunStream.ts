@@ -3,7 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { openRunStream, type SseEvent } from '../../lib/cursor/sse';
 import { CursorApiError } from '../../lib/cursor/errors';
 import { isTerminalRun, type RunStatus } from '../../lib/cursor/types';
-import { useApiKey, useAuth } from '../auth/AuthContext';
+import { useAuth, useOptionalApiKey } from '../auth/AuthContext';
 
 export type TranscriptLine =
   | { kind: 'assistant'; text: string }
@@ -11,7 +11,7 @@ export type TranscriptLine =
   | { kind: 'tool'; callId: string; name: string; status: string; detail?: string };
 
 export function useRunStream(agentId: string, runId: string | undefined, runStatus?: RunStatus) {
-  const apiKey = useApiKey();
+  const apiKey = useOptionalApiKey();
   const { handleApiError } = useAuth();
   const queryClient = useQueryClient();
   const [lines, setLines] = useState<TranscriptLine[]>([]);
@@ -29,7 +29,7 @@ export function useRunStream(agentId: string, runId: string | undefined, runStat
   }, [runId]);
 
   useEffect(() => {
-    if (!live || !runId) return;
+    if (!live || !runId || !apiKey) return;
 
     const stop = openRunStream(
       apiKey,
