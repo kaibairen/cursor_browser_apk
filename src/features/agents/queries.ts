@@ -3,6 +3,8 @@ import {
   useMutation,
   useQuery,
   useQueryClient,
+  type InfiniteData,
+  type QueryClient,
 } from '@tanstack/react-query';
 import * as Crypto from 'expo-crypto';
 import {
@@ -26,9 +28,12 @@ import {
 import { CursorApiError } from '../../lib/cursor/errors';
 import {
   isTerminalRun,
+  type Agent,
   type AgentConversation,
+  type AgentListItem,
   type ConversationMode,
   type CreateAgentRequest,
+  type Paginated,
   type PromptInput,
 } from '../../lib/cursor/types';
 import { useAuth, useOptionalApiKey } from '../auth/AuthContext';
@@ -41,6 +46,28 @@ function requireApiKey(apiKey: string | null): string {
     throw new Error('Not signed in');
   }
   return apiKey;
+}
+
+function findListedAgent(queryClient: QueryClient, id: string): AgentListItem | undefined {
+  const entries = queryClient.getQueriesData<InfiniteData<Paginated<AgentListItem>>>({ queryKey: ['agents'] });
+  for (const [, data] of entries) {
+    const match = data?.pages.flatMap((page) => page.items).find((item) => item.id === id);
+    if (match) return match;
+  }
+  return undefined;
+}
+
+async function loadConversation(
+  apiKey: string,
+  agentId: string,
+  queryClient: QueryClient,
+): Promise<AgentConversation> {
+  const server = await getConversation(apiKey, agentId);
+  const local = queryClient.getQueryData<AgentConversation>(['conversation', agentId]);
+  return {
+    id: server.id,
+    messages: mergePreservingLocalUsers(server.messages, local?.messages ?? []),
+  };
 }
 
 export function useAgentList(options: { includeArchived?: boolean; enabled?: boolean } = {}) {
@@ -69,6 +96,7 @@ export function useAgentList(options: { includeArchived?: boolean; enabled?: boo
 export function useAgent(id: string) {
   const apiKey = useOptionalApiKey();
   const { handleApiError } = useAuth();
+  const queryClient = useQueryClient();
   return useQuery({
     queryKey: ['agent', id],
     enabled: Boolean(apiKey && id),
@@ -82,6 +110,7 @@ export function useAgent(id: string) {
         throw error;
       }
     },
+    placeholderData: () => findListedAgent(queryClient, id) as Agent | undefined,
     refetchInterval: 12_000,
     refetchIntervalInBackground: false,
   });
@@ -120,12 +149,7 @@ export function useConversation(agentId: string, live: boolean) {
     enabled: Boolean(apiKey && agentId),
     queryFn: async () => {
       try {
-        const server = await getConversation(requireApiKey(apiKey), agentId);
-        const local = queryClient.getQueryData<AgentConversation>(['conversation', agentId]);
-        return {
-          id: server.id,
-          messages: mergePreservingLocalUsers(server.messages, local?.messages ?? []),
-        };
+        return await loadConversation(requireApiKey(apiKey), agentId, queryClient);
       } catch (error) {
         handleApiError(error);
         throw error;
@@ -135,6 +159,34 @@ export function useConversation(agentId: string, live: boolean) {
     refetchInterval: live ? 8_000 : false,
     refetchIntervalInBackground: false,
   });
+}
+
+export function usePrefetchAgentDetail() {
+  const apiKey = useOptionalApiKey();
+  const queryClient = useQueryClient();
+  const { handleApiError } = useAuth();
+  return (id: string) => {
+    if (!apiKey || !id) return;
+    void queryClient.prefetchQuery({
+      queryKey: ['agent', id],
+      queryFn: async () => {
+        const agent = await getAgent(requireApiKey(apiKey), id);
+        await rememberAgentProjects({ [agent.id]: agentProjectEntry(agent) });
+        return agent;
+      },
+    });
+    void queryClient.prefetchQuery({
+      queryKey: ['conversation', id],
+      queryFn: async () => {
+        try {
+          return await loadConversation(requireApiKey(apiKey), id, queryClient);
+        } catch (error) {
+          handleApiError(error);
+          throw error;
+        }
+      },
+    });
+  };
 }
 
 export function useRuns(agentId: string) {

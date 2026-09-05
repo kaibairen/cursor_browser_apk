@@ -23,7 +23,13 @@ import {
   resolvedDefaultRepo,
   useHydrateAgentProjects,
 } from '../features/agents/projects';
-import { useAgentList, useCreateAgent, useModels, useRepositories } from '../features/agents/queries';
+import {
+  useAgentList,
+  useCreateAgent,
+  useModels,
+  usePrefetchAgentDetail,
+  useRepositories,
+} from '../features/agents/queries';
 import { useAuth } from '../features/auth/AuthContext';
 import { accountName } from '../features/settings/identity';
 import type { ConversationMode, CreateAgentRequest } from '../lib/cursor/types';
@@ -47,6 +53,7 @@ export default function AgentsHomeScreen() {
   const models = useModels();
   const repos = useRepositories();
   const create = useCreateAgent();
+  const prefetchDetail = usePrefetchAgentDetail();
   const list = useAgentList({ includeArchived: false, enabled: focused });
   const items = useMemo(() => list.data?.pages.flatMap((page) => page.items) ?? [], [list.data]);
 
@@ -230,7 +237,13 @@ export default function AgentsHomeScreen() {
             section.title === sections[0]?.title ? null : <Text style={styles.groupTitle}>{section.title}</Text>
           }
           renderItem={({ item }) => (
-            <Pressable style={styles.row} onPress={() => router.push(`/agent/${item.id}`)}>
+            <Pressable
+              style={styles.row}
+              onPress={() => {
+                prefetchDetail(item.id);
+                router.push(`/agent/${item.id}`);
+              }}
+            >
               <Text style={[styles.glyph, item.status === 'ACTIVE' && styles.live]}>{statusGlyph(item.status)}</Text>
               <View style={styles.rowBody}>
                 <Text style={styles.rowTitle} numberOfLines={1}>

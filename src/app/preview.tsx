@@ -212,7 +212,16 @@ export default function PreviewScreen() {
           <View key={section.key}>
             <Text style={styles.group}>{section.title}</Text>
             {section.data.map((row) => (
-              <Pressable key={row.title} style={styles.row} onPress={() => setPage('detail')}>
+              <Pressable
+                key={row.title}
+                style={styles.row}
+                onPress={() => {
+                  setSent(['这四件事分别根据什么来判断？对象是不是「会算但收尾选飞」。']);
+                  setReplies([DEMO_MARKDOWN]);
+                  setWaiting(false);
+                  setPage('detail');
+                }}
+              >
                 <Text style={styles.glyph}>{row.done ? '✓' : '⎇'}</Text>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.rowTitle}>{row.title}</Text>

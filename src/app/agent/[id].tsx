@@ -158,7 +158,7 @@ export default function AgentDetailScreen() {
     }
   }
 
-  if (agentQuery.isError) {
+  if (agentQuery.isError && !agent) {
     return (
       <View style={[styles.padded, { paddingTop: insets.top + 12 }]}>
         <Pressable onPress={goBack}>
@@ -169,41 +169,35 @@ export default function AgentDetailScreen() {
     );
   }
 
-  if (!agent) {
-    return (
-      <View style={[styles.padded, { paddingTop: insets.top + 12 }]}>
-        <ChatLoading label="加载任务…" />
-      </View>
-    );
-  }
-
   const serverMessages = conversation.data?.messages ?? [];
   const history = mergePreservingLocalUsers(
     serverMessages,
     pendingUsers.map((item) => ({ id: item.id, type: 'user_message', text: item.text })),
   );
+  const hasLocalSend = pendingUsers.length > 0;
   const hasUser = history.some(isUserMessage);
   const lastHistory = history[history.length - 1];
-  const conversationPending = conversation.isPending && !conversation.data && pendingUsers.length === 0;
-  const showChatSpinner = conversationPending && !hasUser;
+  const conversationReady = conversation.isSuccess || conversation.isError;
+  const showChatSpinner = !hasLocalSend && history.length === 0 && conversation.isLoading;
   const showLiveAssistant =
-    hasUser && (live || (stream.lines.length > 0 && lastHistory && isUserMessage(lastHistory)));
+    (hasUser || conversationReady) &&
+    (live || (stream.lines.length > 0 && Boolean(lastHistory && isUserMessage(lastHistory))));
   const waitingForAssistant =
-    hasUser &&
-    Boolean(lastHistory && isUserMessage(lastHistory)) &&
-    stream.lines.length === 0 &&
-    (pendingUsers.length > 0 || followUp.isPending || (live && !run?.result));
+    hasLocalSend && Boolean(lastHistory && isUserMessage(lastHistory)) && stream.lines.length === 0;
   const chatEmpty =
-    !showChatSpinner && history.length === 0 && stream.lines.length === 0 && !run?.result;
+    !showChatSpinner && conversationReady && history.length === 0 && stream.lines.length === 0 && !run?.result;
   const showResultFallback =
-    !showLiveAssistant && !history.some((item) => !isUserMessage(item)) && Boolean(run?.result);
+    conversationReady &&
+    !showLiveAssistant &&
+    !history.some((item) => !isUserMessage(item)) &&
+    Boolean(run?.result);
   const moreItems = [
     { id: 'web', label: '在浏览器打开', hint: '打开网页上的同一条任务' },
     ...(live && latestRunId ? [{ id: 'stop', label: '停止这一轮', hint: '取消当前正在写的回复' }] : []),
     {
       id: 'archive',
-      label: agent.status === 'ARCHIVED' ? '取消归档' : '归档',
-      hint: agent.status === 'ARCHIVED' ? '重新出现在列表里' : '从列表里收起来',
+      label: agent?.status === 'ARCHIVED' ? '取消归档' : '归档',
+      hint: agent?.status === 'ARCHIVED' ? '重新出现在列表里' : '从列表里收起来',
     },
     { id: 'usage', label: '用量', hint: usage.data ? `${usage.data.totalUsage.totalTokens.toLocaleString()} tokens` : '看这轮花了多少' },
     { id: 'delete', label: '删除', hint: '删掉后不能恢复', destructive: true },
@@ -218,12 +212,12 @@ export default function AgentDetailScreen() {
           </Pressable>
           <View style={styles.titleWrap}>
             <Text style={styles.title} numberOfLines={1}>
-              {agent.name || '任务'}
+              {agent?.name || '任务'}
             </Text>
             <Text style={styles.project} numberOfLines={1}>
-              {agent.repos?.[0]?.url
+              {agent?.repos?.[0]?.url
                 ? repoShortName(agent.repos[0].url)
-                : agent.env?.name || '未绑定仓库'}
+                : agent?.env?.name || '未绑定仓库'}
             </Text>
           </View>
           <Pressable accessibilityRole="button" onPress={() => setMenuOpen(true)} hitSlop={12}>
@@ -261,7 +255,7 @@ export default function AgentDetailScreen() {
                     return <ChatText key={item.id} text={item.text} />;
                   })
                 : null}
-              {!showChatSpinner && waitingForAssistant ? <ChatLoading label="正在写…" /> : null}
+              {!showChatSpinner && waitingForAssistant ? <ChatLoading compact label="正在写…" /> : null}
               {!showChatSpinner && showLiveAssistant
                 ? stream.lines.map((line, index) => {
                     if (line.kind === 'tool') {
@@ -316,7 +310,7 @@ export default function AgentDetailScreen() {
         </ScrollView>
 
         <View style={[styles.composerWrap, { paddingBottom: Math.max(insets.bottom, 12) }]}>
-          {agent.status === 'ARCHIVED' ? (
+          {agent?.status === 'ARCHIVED' ? (
             <Text style={styles.meta}>已归档。打开右上角可以恢复。</Text>
           ) : (
             <Composer
@@ -367,11 +361,11 @@ export default function AgentDetailScreen() {
       />
       <ActionSheet
         visible={menuOpen}
-        title={agent.name || '任务'}
+        title={agent?.name || '任务'}
         items={moreItems}
         onClose={() => setMenuOpen(false)}
         onSelect={(id) => {
-          if (id === 'web') {
+          if (id === 'web' && agent) {
             void openExternal(agent.url);
             return;
           }
@@ -381,7 +375,7 @@ export default function AgentDetailScreen() {
             });
             return;
           }
-          if (id === 'archive') {
+          if (id === 'archive' && agent) {
             void archive.mutateAsync(agent.status === 'ARCHIVED');
             return;
           }
