@@ -1,4 +1,5 @@
 import { Platform } from 'react-native';
+import type { ArtifactMediaKind } from './artifactPath';
 import { CursorApiError, CursorAuthError, friendlyNetworkError, isRetryableError } from './errors';
 import { fetchAttemptsWhenUnstable, noteNetworkFail, noteNetworkOk } from './reconnect';
 import type {
@@ -295,16 +296,22 @@ export function downloadArtifact(
   );
 }
 
-const TEXT_ARTIFACT = /\.(md|markdown|txt|json|csv|tsv|ya?ml|xml|html|css|js|jsx|ts|tsx|py|go|rs|java|kt|swift|sh|log|diff|patch|toml|ini|rst)$/i;
-const IMAGE_ARTIFACT = /\.(png|jpe?g|gif|webp|bmp|svg)$/i;
 const ARTIFACT_MAX_BYTES = 2 * 1024 * 1024;
 
-export function isTextArtifactPath(path: string): boolean {
-  return TEXT_ARTIFACT.test(path);
-}
+export {
+  artifactFileName,
+  artifactMediaKind,
+  isImageArtifactPath,
+  isOpenableArtifactPath,
+  isTextArtifactPath,
+  isVideoArtifactPath,
+} from './artifactPath';
 
-export function isImageArtifactPath(path: string): boolean {
-  return IMAGE_ARTIFACT.test(path);
+export function playbackUri(kind: ArtifactMediaKind, signedUrl: string): string {
+  if (kind === 'video' && Platform.OS === 'web') {
+    return `/cursor-api/media?url=${encodeURIComponent(signedUrl)}`;
+  }
+  return signedUrl;
 }
 
 export async function fetchArtifactUtf8(url: string): Promise<string> {

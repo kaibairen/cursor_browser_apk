@@ -40,4 +40,15 @@ if (typeof watchClientAbort !== 'function') {
   throw new Error('watchClientAbort should be exported');
 }
 
+const { isAllowedArtifactHost, MEDIA_MAX_BYTES } = require('./cursor-api-proxy');
+if (!isAllowedArtifactHost('cloud-agent-artifacts.s3.us-east-1.amazonaws.com')) {
+  throw new Error('artifact host should allow S3');
+}
+if (isAllowedArtifactHost('evil.example')) {
+  throw new Error('artifact host should reject unknown hosts');
+}
+if (MEDIA_MAX_BYTES < 20 * 1024 * 1024) {
+  throw new Error('media proxy must allow a ~20MB mp4');
+}
+
 console.log('proxy helpers ok');

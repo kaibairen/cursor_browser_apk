@@ -13,7 +13,9 @@ import {
   createAgent,
   createRun,
   deleteAgent,
+  artifactMediaKind,
   downloadArtifact,
+  playbackUri,
   getAgent,
   getAgentUsage,
   getConversation,
@@ -294,15 +296,43 @@ export function useUsage(agentId: string) {
   });
 }
 
-export function useArtifacts(agentId: string) {
+export function useArtifacts(agentId: string, options: { live?: boolean } = {}) {
   const apiKey = useOptionalApiKey();
   const { handleApiError } = useAuth();
   return useQuery({
     queryKey: ['artifacts', agentId],
     enabled: Boolean(apiKey && agentId),
+    refetchInterval: options.live ? 8_000 : false,
     queryFn: async () => {
       try {
         return await listArtifacts(requireApiKey(apiKey), agentId);
+      } catch (error) {
+        handleApiError(error);
+        throw error;
+      }
+    },
+  });
+}
+
+export function useArtifactMedia(agentId: string, path: string) {
+  const apiKey = useOptionalApiKey();
+  const { handleApiError } = useAuth();
+  const kind = artifactMediaKind(path);
+  return useQuery({
+    queryKey: ['artifact-media', agentId, path],
+    enabled: Boolean(apiKey && agentId && path && kind),
+    staleTime: 10 * 60 * 1000,
+    queryFn: async () => {
+      if (!kind) {
+        throw new Error('不是可预览的媒体');
+      }
+      try {
+        const file = await downloadArtifact(requireApiKey(apiKey), agentId, path);
+        return {
+          uri: playbackUri(kind, file.url),
+          kind,
+          expiresAt: file.expiresAt,
+        };
       } catch (error) {
         handleApiError(error);
         throw error;

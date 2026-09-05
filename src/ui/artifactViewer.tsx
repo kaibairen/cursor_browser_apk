@@ -1,13 +1,15 @@
-import { ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, spacing } from '../theme';
 import { ChatText } from './chatText';
+import { MediaBlock } from './mediaBlock';
 
 export type ArtifactView =
   | { status: 'loading'; title: string }
   | { status: 'error'; title: string; message: string }
   | { status: 'markdown'; title: string; text: string }
   | { status: 'image'; title: string; uri: string }
+  | { status: 'video'; title: string; uri: string }
   | { status: 'binary'; title: string; hint: string };
 
 export function ArtifactViewer({
@@ -52,8 +54,13 @@ export function ArtifactViewer({
         ) : null}
         {view.status === 'image' ? (
           <ScrollView contentContainerStyle={styles.padded}>
-            <Image source={{ uri: view.uri }} style={styles.image} resizeMode="contain" />
+            <MediaBlock kind="image" uri={view.uri} />
           </ScrollView>
+        ) : null}
+        {view.status === 'video' ? (
+          <View style={styles.padded}>
+            <MediaBlock kind="video" uri={view.uri} />
+          </View>
         ) : null}
         {view.status === 'binary' ? (
           <View style={styles.padded}>
@@ -85,7 +92,6 @@ const styles = StyleSheet.create({
   padded: { padding: spacing.lg, gap: 12, paddingBottom: 48 },
   hint: { color: colors.muted, fontSize: 14, lineHeight: 20 },
   error: { color: colors.danger, fontSize: 14, lineHeight: 20 },
-  image: { width: '100%', minHeight: 240, backgroundColor: colors.chip },
   external: {
     alignSelf: 'flex-start',
     backgroundColor: colors.accent,

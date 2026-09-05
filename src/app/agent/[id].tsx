@@ -31,9 +31,11 @@ import {
 import { useRunStream } from '../../features/agents/useRunStream';
 import {
   fetchArtifactUtf8,
-  isImageArtifactPath,
+  isOpenableArtifactPath,
   isTextArtifactPath,
+  playbackUri,
 } from '../../lib/cursor/client';
+import { artifactMediaKind, assignChatMedia } from '../../lib/cursor/artifactPath';
 import { isTerminalRun, type ConversationMessage } from '../../lib/cursor/types';
 import { formatBytes } from '../../lib/format';
 import { colors, spacing } from '../../theme';
@@ -46,6 +48,7 @@ import {
 } from '../../features/agents/conversationView';
 import { ArtifactViewer, type ArtifactView } from '../../ui/artifactViewer';
 import { ChatLoading } from '../../ui/chatLoading';
+import { ChatArtifactMedia } from '../../ui/chatArtifactMedia';
 import { ChatText } from '../../ui/chatText';
 import { TurnTimeline } from '../../ui/turnTimeline';
 import { UserBubble } from '../../ui/userBubble';
@@ -81,14 +84,14 @@ export default function AgentDetailScreen() {
   const archive = useArchiveAgent(agentId);
   const remove = useDeleteAgent();
   const usage = useUsage(agentId);
-  const artifacts = useArtifacts(agentId);
+  const artifacts = useArtifacts(agentId, { live });
   const download = useDownloadArtifact(agentId);
   const models = useModels();
   const queryClient = useQueryClient();
 
   const [tab, setTab] = useState<'chat' | 'diff'>('chat');
   const [prompt, setPrompt] = useState('');
-  const [pendingUsers, setPendingUsers] = useState<{ id: string; text: string }[]>([]);
+  const [pendingUsers, setPendingUsers] = useState<{ id: string; text: string; images?: PickedImage[] }[]>([]);
   const [keptThinking, setKeptThinking] = useState<{ text: string; durationMs?: number } | null>(null);
   const thinkingStarted = useRef<number | null>(null);
   const [modelId, setModelId] = useState('');
@@ -202,7 +205,7 @@ export default function AgentDetailScreen() {
     if (!text) return;
     const pendingId = `pending-${Date.now()}`;
     const keptImages = images;
-    setPendingUsers((current) => [...current, { id: pendingId, text }]);
+    setPendingUsers((current) => [...current, { id: pendingId, text, images: keptImages }]);
     thinkingStarted.current = Date.now();
     setKeptThinking({ text: '' });
     setPrompt('');
@@ -233,8 +236,9 @@ export default function AgentDetailScreen() {
     setArtifactView({ status: 'loading', title });
     try {
       const file = await download.mutateAsync(path);
-      if (isImageArtifactPath(path)) {
-        setArtifactView({ status: 'image', title, uri: file.url });
+      const media = artifactMediaKind(path);
+      if (media) {
+        setArtifactView({ status: media, title, uri: playbackUri(media, file.url) });
         return;
       }
       if (isTextArtifactPath(path)) {
@@ -337,6 +341,11 @@ export default function AgentDetailScreen() {
     { id: 'usage', label: '用量', hint: usage.data ? `${usage.data.totalUsage.totalTokens.toLocaleString()} tokens` : '看这轮花了多少' },
     { id: 'delete', label: '删除', hint: '删掉后不能恢复', destructive: true },
   ];
+  const pendingById = new Map(pendingUsers.map((item) => [item.id, item]));
+  const chatMedia = assignChatMedia(artifacts.data?.items ?? [], history);
+  const hiddenAssistantMedia =
+    streamAssistant && latestAssistantIndex >= 0 ? (chatMedia.byIndex[latestAssistantIndex] ?? []) : [];
+  const leftoverMedia = [...chatMedia.leftover, ...hiddenAssistantMedia];
 
   return (
     <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -399,7 +408,7 @@ export default function AgentDetailScreen() {
                     if (isUserMessage(item)) {
                       return (
                         <View key={`u:${index}:${item.text}`} style={styles.turn}>
-                          <UserBubble text={item.text} />
+                          <UserBubble text={item.text} images={pendingById.get(item.id)?.images} />
                           {index === latestUserIndex ? (
                             <TurnTimeline
                               lines={stream.lines}
@@ -411,7 +420,16 @@ export default function AgentDetailScreen() {
                         </View>
                       );
                     }
-                    return <ChatText key={`a:${index}:${item.id}`} text={item.text} />;
+                    return (
+                      <View key={`a:${index}:${item.id}`} style={styles.turn}>
+                        <ChatText text={item.text} />
+                        <ChatArtifactMedia
+                          agentId={agentId ?? ''}
+                          items={chatMedia.byIndex[index] ?? []}
+                          onOpen={(path) => void openArtifact(path)}
+                        />
+                      </View>
+                    );
                   })
                 : null}
               {!showChatSpinner && latestUserIndex < 0 ? (
@@ -423,6 +441,13 @@ export default function AgentDetailScreen() {
                 />
               ) : null}
               {!showChatSpinner && showResultFallback && run?.result ? <ChatText text={run.result} /> : null}
+              {!showChatSpinner ? (
+                <ChatArtifactMedia
+                  agentId={agentId ?? ''}
+                  items={leftoverMedia}
+                  onOpen={(path) => void openArtifact(path)}
+                />
+              ) : null}
             </View>
           ) : (
             <View style={styles.chat}>
@@ -442,9 +467,7 @@ export default function AgentDetailScreen() {
                   <Text style={styles.diffTitle}>{fileName(item.path)}</Text>
                   <Text style={styles.meta}>
                     {formatBytes(item.sizeBytes)}
-                    {isTextArtifactPath(item.path) || isImageArtifactPath(item.path)
-                      ? ' · 应用内打开'
-                      : ' · 可能要去浏览器'}
+                    {isOpenableArtifactPath(item.path) ? ' · 应用内打开' : ' · 可能要去浏览器'}
                   </Text>
                 </Pressable>
               ))}

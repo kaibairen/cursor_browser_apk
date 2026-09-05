@@ -9,6 +9,7 @@ import { useVoiceInput } from '../features/speech/useVoiceInput';
 import { colors, spacing } from '../theme';
 import { AccountMenuPopover, SETTINGS_TITLES, type SettingsPageId } from '../ui/accountMenu';
 import { ChatText } from '../ui/chatText';
+import { MediaBlock } from '../ui/mediaBlock';
 import { ThinkingBlock } from '../ui/thinkingBlock';
 import { TurnTimeline } from '../ui/turnTimeline';
 import { UserBubble } from '../ui/userBubble';
@@ -50,6 +51,8 @@ const DEMO_MARKDOWN = `## 3. 基于什么指标，对应什么情况
 `;
 
 const DEMO_THINKING = '用户在问判断标准。先对上「会算 / 答对 / 错配」三列，再解释「会算但收尾选飞」对应哪一行。';
+const DEMO_IMAGE_URL = 'https://picsum.photos/seed/agents-console/960/540';
+const DEMO_VIDEO_URL = 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4';
 const DEMO_FOLLOW_REPLY = '黑色气泡会先出现。下面先展开思考，再一段一段写出回复。';
 
 type DemoTurn = {
@@ -177,6 +180,8 @@ export default function PreviewScreen() {
                   )}
                 </View>
               ))}
+              <MediaBlock kind="image" uri={DEMO_IMAGE_URL} caption="preview-home.png" />
+              <MediaBlock kind="video" uri={DEMO_VIDEO_URL} caption="user-bubble-immediate-send.mp4" />
               {turn.waiting || (!thread[thread.length - 1]?.reply && (turn.thinking || turn.reply)) ? (
                 <>
                   <ThinkingBlock
@@ -201,6 +206,10 @@ export default function PreviewScreen() {
               <Text style={styles.diffTitle}>numerical_analysis.md</Text>
               <Text style={styles.meta}>应用内 UTF-8 打开，不再跳浏览器</Text>
               <ChatText text={DEMO_MARKDOWN} />
+              <Text style={styles.diffTitle}>preview-home.png</Text>
+              <Text style={styles.meta}>51.7 KB · 应用内打开</Text>
+              <Text style={styles.diffTitle}>user-bubble-immediate-send.mp4</Text>
+              <Text style={styles.meta}>19.7 MB · 应用内打开</Text>
             </View>
           )}
         </ScrollView>

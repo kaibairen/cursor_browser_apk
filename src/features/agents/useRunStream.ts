@@ -76,6 +76,7 @@ export function useRunStream(agentId: string, runId: string | undefined, runStat
     setRevealing(false);
     setEnded(true);
     void queryClient.invalidateQueries({ queryKey: ['conversation', agentId] });
+    void queryClient.invalidateQueries({ queryKey: ['artifacts', agentId] });
   }, [agentId, queryClient, runStatus]);
 
   useEffect(() => {
@@ -153,6 +154,7 @@ export function useRunStream(agentId: string, runId: string | undefined, runStat
       void queryClient.invalidateQueries({ queryKey: ['run', agentId, runId] });
       void queryClient.invalidateQueries({ queryKey: ['agent', agentId] });
       void queryClient.invalidateQueries({ queryKey: ['conversation', agentId] });
+      void queryClient.invalidateQueries({ queryKey: ['artifacts', agentId] });
     }
 
     function enqueue(events: SseEvent[], burst: boolean) {

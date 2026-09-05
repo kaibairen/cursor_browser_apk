@@ -3,6 +3,7 @@ const { URL } = require('url');
 
 const PREFIX = '/cursor-api';
 const ARTIFACT_MAX_BYTES = 2 * 1024 * 1024;
+const MEDIA_MAX_BYTES = 80 * 1024 * 1024;
 
 function json(res, status, body) {
   if (res.writableEnded || res.destroyed) return;
@@ -58,6 +59,114 @@ function isAllowedArtifactHost(hostname) {
     host.endsWith('.cursor.sh') ||
     host.endsWith('.cloudfront.net')
   );
+}
+
+function mediaTooLarge(headers) {
+  const range = String(headers['content-range'] || '');
+  const total = /\/(\d+)\s*$/.exec(range);
+  if (total && Number(total[1]) > MEDIA_MAX_BYTES) return true;
+  const length = Number(headers['content-length'] || 0);
+  if (!range && length > MEDIA_MAX_BYTES) return true;
+  return false;
+}
+
+function mediaOutHeaders(up) {
+  const headers = {
+    'cache-control': 'no-store',
+    'x-content-type-options': 'nosniff',
+    'accept-ranges': up.headers['accept-ranges'] || 'bytes',
+  };
+  if (up.headers['content-type']) headers['content-type'] = up.headers['content-type'];
+  if (up.headers['content-length']) headers['content-length'] = up.headers['content-length'];
+  if (up.headers['content-range']) headers['content-range'] = up.headers['content-range'];
+  return headers;
+}
+
+function parseAllowedHttpsUrl(raw) {
+  if (!raw) return { error: '缺少 url' };
+  let parsed;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    return { error: '无效的文件地址' };
+  }
+  if (parsed.protocol !== 'https:' || !isAllowedArtifactHost(parsed.hostname)) {
+    return { error: '不允许打开这个地址' };
+  }
+  return { parsed };
+}
+
+function proxyMedia(req, res) {
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    json(res, 405, { message: '只支持 GET' });
+    return;
+  }
+
+  const incoming = new URL(req.url || '/', 'http://127.0.0.1');
+  const parsedUrl = parseAllowedHttpsUrl(incoming.searchParams.get('url'));
+  if (parsedUrl.error || !parsedUrl.parsed) {
+    json(res, parsedUrl.error === '缺少 url' ? 400 : parsedUrl.error === '无效的文件地址' ? 400 : 403, {
+      message: parsedUrl.error,
+    });
+    return;
+  }
+  const parsed = parsedUrl.parsed;
+  const headers = { accept: req.headers.accept || '*/*' };
+  if (req.headers.range) headers.range = req.headers.range;
+
+  let upstream;
+  const abort = () => destroyQuietly(upstream);
+  watchClientAbort(req, res, abort);
+
+  upstream = https.request(
+    {
+      hostname: parsed.hostname,
+      path: `${parsed.pathname}${parsed.search}`,
+      method: req.method,
+      headers,
+    },
+    (up) => {
+      if (mediaTooLarge(up.headers)) {
+        up.resume();
+        json(res, 413, { message: '视频太大，没法在应用里播放' });
+        return;
+      }
+      if (res.writableEnded || res.destroyed) {
+        destroyQuietly(up);
+        return;
+      }
+      res.writeHead(up.statusCode || 502, mediaOutHeaders(up));
+      if (req.method === 'HEAD') {
+        res.end();
+        up.resume();
+        return;
+      }
+      let size = 0;
+      up.on('data', (chunk) => {
+        size += chunk.length;
+        if (size > MEDIA_MAX_BYTES) {
+          destroyQuietly(up);
+          if (!res.writableEnded) {
+            try {
+              res.destroy();
+            } catch {
+              // ignore
+            }
+          }
+        }
+      });
+      up.on('error', abort);
+      res.on('error', abort);
+      up.pipe(res);
+    },
+  );
+
+  upstream.on('error', () => {
+    if (!res.headersSent) {
+      json(res, 502, { message: '无法读取文件内容' });
+    }
+  });
+  upstream.end();
 }
 
 function proxyArtifact(req, res) {
@@ -301,6 +410,10 @@ function attachCursorApiProxy(metroMiddleware) {
   return function cursorApiMiddleware(req, res, next) {
     try {
       const pathname = new URL(req.url || '/', 'http://127.0.0.1').pathname;
+      if (pathname === `${PREFIX}/media`) {
+        proxyMedia(req, res);
+        return;
+      }
       if (pathname === `${PREFIX}/artifact`) {
         proxyArtifact(req, res);
         return;
@@ -323,4 +436,11 @@ function attachCursorApiProxy(metroMiddleware) {
   };
 }
 
-module.exports = { attachCursorApiProxy, PREFIX, writeSseChunk, watchClientAbort };
+module.exports = {
+  attachCursorApiProxy,
+  PREFIX,
+  writeSseChunk,
+  watchClientAbort,
+  isAllowedArtifactHost,
+  MEDIA_MAX_BYTES,
+};

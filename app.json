@@ -16,7 +16,10 @@
     },
     "android": {
       "package": "com.kaibairen.agentsconsole",
-      "permissions": ["RECORD_AUDIO", "android.permission.RECORD_AUDIO"],
+      "permissions": [
+        "RECORD_AUDIO",
+        "android.permission.RECORD_AUDIO"
+      ],
       "allowBackup": false,
       "adaptiveIcon": {
         "backgroundColor": "#0d1117",
@@ -46,7 +49,8 @@
         {
           "microphonePermission": "按住说话，转成文字发给 Agent。"
         }
-      ]
+      ],
+      "expo-video"
     ],
     "experiments": {
       "typedRoutes": true

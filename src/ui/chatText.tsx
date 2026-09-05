@@ -1,6 +1,9 @@
 import type { ReactNode } from 'react';
 import { Linking, ScrollView, StyleSheet, Text, View } from 'react-native';
+import type { ArtifactMediaKind } from '../lib/cursor/artifactPath';
+import { splitMarkdownMedia } from '../lib/cursor/artifactPath';
 import { colors } from '../theme';
+import { MediaBlock } from './mediaBlock';
 
 type MdBlock =
   | { type: 'heading'; level: 1 | 2 | 3; text: string }
@@ -9,7 +12,8 @@ type MdBlock =
   | { type: 'hr' }
   | { type: 'list'; items: string[] }
   | { type: 'table'; headers: string[]; rows: string[][] }
-  | { type: 'p'; text: string };
+  | { type: 'p'; text: string }
+  | { type: 'media'; kind: ArtifactMediaKind; alt: string; url: string };
 
 export function ChatText({ text }: { text: string }) {
   const blocks = parseBlocks(text);
@@ -59,6 +63,8 @@ function RenderBlock({ block }: { block: MdBlock }) {
       return <MarkdownTable headers={block.headers} rows={block.rows} />;
     case 'p':
       return <Text style={styles.body}>{renderInline(block.text)}</Text>;
+    case 'media':
+      return <MediaBlock kind={block.kind} uri={block.url} caption={block.alt || undefined} />;
   }
 }
 
@@ -185,7 +191,14 @@ function parseBlocks(raw: string): MdBlock[] {
       para.push(peek);
       i += 1;
     }
-    blocks.push({ type: 'p', text: para.join('\n') });
+    for (const piece of splitMarkdownMedia(para.join('\n'))) {
+      if (piece.type === 'media') {
+        blocks.push({ type: 'media', kind: piece.kind, alt: piece.alt, url: piece.url });
+        continue;
+      }
+      const text = piece.text.replace(/^\n+|\n+$/g, '');
+      if (text) blocks.push({ type: 'p', text });
+    }
   }
 
   return blocks;
