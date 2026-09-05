@@ -9,7 +9,7 @@ import { useVoiceInput } from '../features/speech/useVoiceInput';
 import { colors, spacing } from '../theme';
 import { AccountMenuPopover, SETTINGS_TITLES, type SettingsPageId } from '../ui/accountMenu';
 import { ChatText } from '../ui/chatText';
-import { Composer } from '../ui/composer';
+import { Composer, RepoSourceBar } from '../ui/composer';
 import { AvatarButton, Segmented } from '../ui/primitives';
 import { SettingsChrome } from '../ui/settingsChrome';
 import { ActionSheet } from '../ui/sheet';
@@ -141,6 +141,7 @@ export default function PreviewScreen() {
         <AvatarButton label="思亦" onPress={() => setMenuOpen(true)} />
       </View>
       <ScrollView contentContainerStyle={styles.list} keyboardShouldPersistTaps="handled">
+        <RepoSourceBar label={repo} onPress={() => setPicker('repo')} />
         <Composer
           value={homeText}
           onChangeText={setHomeText}
@@ -148,8 +149,6 @@ export default function PreviewScreen() {
           onSubmit={() => setPage('detail')}
           modelLabel={model}
           onModelPress={() => setPicker('model')}
-          repoLabel={repo}
-          onRepoPress={() => setPicker('repo')}
           listening={homeVoice.listening}
           onMicStart={homeVoice.onMicStart}
           onMicEnd={homeVoice.onMicEnd}

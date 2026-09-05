@@ -10,8 +10,6 @@ type ComposerProps = {
   submitting?: boolean;
   modelLabel: string;
   onModelPress?: () => void;
-  repoLabel?: string;
-  onRepoPress?: () => void;
   onAttach?: () => void;
   attachLabel?: string;
   hint?: string;
@@ -20,6 +18,14 @@ type ComposerProps = {
   onMicEnd?: () => void;
   children?: ReactNode;
 };
+
+export function RepoSourceBar({ label, onPress }: { label: string; onPress: () => void }) {
+  return (
+    <Pressable accessibilityRole="button" accessibilityLabel="选择仓库" onPress={onPress} style={styles.source}>
+      <Text style={styles.sourceText}>{label} ▾</Text>
+    </Pressable>
+  );
+}
 
 function MicIcon({ color }: { color: string }) {
   return (
@@ -39,8 +45,6 @@ export function Composer({
   submitting,
   modelLabel,
   onModelPress,
-  repoLabel,
-  onRepoPress,
   onAttach,
   attachLabel,
   hint,
@@ -73,22 +77,20 @@ export function Composer({
       <View style={styles.toolbar}>
         <Pressable
           accessibilityRole="button"
+          accessibilityLabel="添加图片"
           onPress={onAttach}
           disabled={!onAttach}
           style={[styles.plus, { opacity: onAttach ? 1 : 0.45 }]}
-          hitSlop={8}
         >
           <Text style={styles.plusText}>+</Text>
         </Pressable>
-        {onRepoPress ? (
-          <Pressable accessibilityRole="button" onPress={onRepoPress} style={styles.chip} hitSlop={8}>
-            <Text style={styles.chipText} numberOfLines={1}>
-              {repoLabel} ▾
-            </Text>
-          </Pressable>
-        ) : null}
         {onModelPress ? (
-          <Pressable accessibilityRole="button" onPress={onModelPress} style={styles.chip} hitSlop={8}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="选择模型"
+            onPress={onModelPress}
+            style={styles.chip}
+          >
             <Text style={styles.chipText} numberOfLines={1}>
               {modelLabel} ▾
             </Text>
@@ -154,7 +156,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   plusText: { color: colors.text, fontSize: 18, lineHeight: 20, fontWeight: '500' },
-  chip: { maxWidth: 140, paddingVertical: 4 },
+  source: { alignSelf: 'flex-start', paddingVertical: 4, paddingRight: 12 },
+  sourceText: { color: colors.text, fontSize: 14, fontWeight: '600' },
+  chip: { maxWidth: 180, paddingVertical: 4, paddingHorizontal: 2 },
   chipText: { color: colors.text, fontSize: 13, fontWeight: '500' },
   modelLocked: { maxWidth: 140, color: colors.muted, fontSize: 13, fontWeight: '500' },
   mic: {

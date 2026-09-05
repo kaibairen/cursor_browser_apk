@@ -30,7 +30,7 @@ import { formatRelative } from '../lib/format';
 import { usePrefs } from '../storage/usePrefs';
 import { colors, spacing } from '../theme';
 import { useVoiceInput } from '../features/speech/useVoiceInput';
-import { Composer } from '../ui/composer';
+import { Composer, RepoSourceBar } from '../ui/composer';
 import { AccountMenuPopover, SETTINGS_HREF } from '../ui/accountMenu';
 import { AvatarButton } from '../ui/primitives';
 import { ActionSheet } from '../ui/sheet';
@@ -172,6 +172,7 @@ export default function AgentsHomeScreen() {
           }}
           ListHeaderComponent={
             <View style={styles.headerBlock}>
+              <RepoSourceBar label={repoLabel} onPress={() => setPicker('repo')} />
               <Composer
                 value={text}
                 onChangeText={setText}
@@ -180,8 +181,6 @@ export default function AgentsHomeScreen() {
                 submitting={create.isPending}
                 modelLabel={modelLabel}
                 onModelPress={() => setPicker('model')}
-                repoLabel={repoLabel}
-                onRepoPress={() => setPicker('repo')}
                 onAttach={() => {
                   void pickImages(images.length)
                     .then((next) => setImages((current) => [...current, ...next]))
