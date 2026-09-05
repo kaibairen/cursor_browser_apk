@@ -1,4 +1,5 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useSafeBack } from '../../lib/nav';
 import { useMemo, useState } from 'react';
 import {
   KeyboardAvoidingView,
@@ -47,6 +48,7 @@ export default function AgentDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const agentId = Array.isArray(id) ? id[0] : id;
   const router = useRouter();
+  const goBack = useSafeBack('/home');
   const insets = useSafeAreaInsets();
 
   const agentQuery = useAgent(agentId);
@@ -138,7 +140,7 @@ export default function AgentDetailScreen() {
   if (agentQuery.isError) {
     return (
       <View style={[styles.padded, { paddingTop: insets.top + 12 }]}>
-        <Pressable onPress={() => router.back()}>
+        <Pressable onPress={goBack}>
           <Text style={styles.back}>‹ 返回</Text>
         </Pressable>
         <Text style={styles.error}>{agentQuery.error instanceof Error ? agentQuery.error.message : '加载失败'}</Text>
@@ -171,7 +173,7 @@ export default function AgentDetailScreen() {
     <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <View style={[styles.flex, { paddingTop: insets.top + 4 }]}>
         <View style={styles.header}>
-          <Pressable accessibilityRole="button" onPress={() => router.back()} hitSlop={12}>
+          <Pressable accessibilityRole="button" onPress={goBack} hitSlop={12}>
             <Text style={styles.backIcon}>‹</Text>
           </Pressable>
           <View style={styles.titleWrap}>
