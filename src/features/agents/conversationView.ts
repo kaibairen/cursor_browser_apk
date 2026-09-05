@@ -4,6 +4,10 @@ export function isUserMessage(item: ConversationMessage): boolean {
   return /user/i.test(item.type);
 }
 
+export function isLocalUserId(id: string): boolean {
+  return id.startsWith('local-user:') || id.startsWith('local-user-') || id.startsWith('pending-');
+}
+
 export function mergePreservingLocalUsers(
   server: ConversationMessage[],
   local: ConversationMessage[],
@@ -25,6 +29,6 @@ export function seedUserMessage(existing: AgentConversation | undefined, agentId
   }
   return {
     id: existing?.id ?? agentId,
-    messages: [...messages, { id: `local-user-${Date.now()}`, type: 'user_message', text: trimmed }],
+    messages: [...messages, { id: `local-user:${trimmed}`, type: 'user_message', text: trimmed }],
   };
 }

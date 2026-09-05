@@ -375,7 +375,6 @@ export function useCreateFollowUp(agentId: string) {
       void queryClient.invalidateQueries({ queryKey: ['runs', agentId] });
       void queryClient.invalidateQueries({ queryKey: ['run', agentId] });
       void queryClient.invalidateQueries({ queryKey: ['usage', agentId] });
-      void queryClient.invalidateQueries({ queryKey: ['conversation', agentId] });
     },
   });
 }
@@ -393,9 +392,16 @@ export function useCancelRun(agentId: string) {
         throw error;
       }
     },
-    onSuccess: () => {
+    onSuccess: (_result, runId) => {
+      queryClient.setQueryData(['run', agentId, runId], (current: { status?: string } | undefined) =>
+        current ? { ...current, status: 'CANCELLED' } : current,
+      );
+      queryClient.setQueryData(['agent', agentId], (current: Agent | undefined) =>
+        current ? { ...current, status: 'IDLE' } : current,
+      );
       void queryClient.invalidateQueries({ queryKey: ['agent', agentId] });
       void queryClient.invalidateQueries({ queryKey: ['runs', agentId] });
+      void queryClient.invalidateQueries({ queryKey: ['run', agentId, runId] });
     },
   });
 }

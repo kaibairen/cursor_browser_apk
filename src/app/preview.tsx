@@ -158,17 +158,17 @@ export default function PreviewScreen() {
                   {item.reply ? <ChatText text={item.reply} /> : null}
                 </View>
               ))}
-              {turn.waiting ? (
+              {turn.waiting || (!thread[thread.length - 1]?.reply && (turn.thinking || turn.reply)) ? (
                 <>
                   <ThinkingBlock
                     text={turn.thinking}
-                    done={turn.thinkingDone}
+                    done={turn.thinkingDone || !turn.waiting}
                     durationMs={turn.thinkingDone ? turn.thinkingMs : undefined}
                   />
                   {turn.reply ? (
                     <Text style={styles.liveText}>
                       {turn.reply}
-                      <Text style={styles.caret}>▍</Text>
+                      {turn.waiting ? <Text style={styles.caret}>▍</Text> : null}
                     </Text>
                   ) : null}
                 </>
@@ -197,15 +197,13 @@ export default function PreviewScreen() {
               startTurn(text, DEMO_FOLLOW_REPLY);
             }}
             submitting={false}
+            onStop={turn.waiting ? turn.stop : undefined}
             modelLabel={model === '默认模型' ? '沿用此任务模型' : model}
             onModelPress={() => setPicker('model')}
             listening={followVoice.listening}
             onMicStart={followVoice.onMicStart}
             onMicEnd={followVoice.onMicEnd}
-            hint={
-              followVoice.error ??
-              (turn.waiting ? '这一轮还在写。可以先打字，写完再发；现在发可能会被拒绝。' : undefined)
-            }
+            hint={followVoice.error ?? undefined}
           />
         </View>
         <ActionSheet
@@ -363,10 +361,8 @@ function usePreviewTurn() {
   function stop() {
     clearTimers();
     setWaiting(false);
-    setThinking('');
-    setThinkingDone(false);
-    setThinkingMs(0);
-    setReply('');
+    setThinkingDone(true);
+    setThinkingMs((current) => current || Math.max(800, Date.now() - startedAt.current));
   }
 
   function start(

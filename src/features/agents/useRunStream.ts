@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { openRunStream } from '../../lib/cursor/sse';
-import { applySseEvent, type TranscriptLine } from '../../lib/cursor/sseApply';
+import { applySseEvent, ensureThinkingLine, type TranscriptLine } from '../../lib/cursor/sseApply';
 import { CursorApiError } from '../../lib/cursor/errors';
 import { isTerminalRun, type Run, type RunStatus } from '../../lib/cursor/types';
 import { useAuth, useOptionalApiKey } from '../auth/AuthContext';
@@ -42,6 +42,11 @@ export function useRunStream(agentId: string, runId: string | undefined, runStat
       agentId,
       runId,
       {
+        onOpen: () => {
+          const next = ensureThinkingLine(linesRef.current);
+          linesRef.current = next;
+          setLines(next);
+        },
         onEvent: (event) => {
           const result = applySseEvent(event, linesRef.current, {
             lastEventId: lastEventId.current,
@@ -83,5 +88,11 @@ export function useRunStream(agentId: string, runId: string | undefined, runStat
     return stop;
   }, [apiKey, agentId, runId, live, handleApiError, queryClient]);
 
-  return { lines, streamError, usePolling, live };
+  return {
+    lines,
+    streamError,
+    usePolling,
+    live,
+    stop: () => setEnded(true),
+  };
 }

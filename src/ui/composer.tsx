@@ -18,6 +18,8 @@ type ComposerProps = {
   listening?: boolean;
   onMicStart?: () => void;
   onMicEnd?: () => void;
+  onStop?: () => void;
+  stopping?: boolean;
   children?: ReactNode;
 };
 
@@ -53,12 +55,15 @@ export function Composer({
   listening,
   onMicStart,
   onMicEnd,
+  onStop,
+  stopping,
   children,
 }: ComposerProps) {
   const [focused, setFocused] = useState(false);
+  const canStop = Boolean(onStop);
 
   function submit() {
-    if (!value.trim() || submitting) return;
+    if (canStop || !value.trim() || submitting) return;
     onSubmit();
   }
 
@@ -73,7 +78,7 @@ export function Composer({
         multiline
         autoCapitalize="sentences"
         autoCorrect
-        editable={!submitting}
+        editable={true}
         underlineColorAndroid="transparent"
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
@@ -119,13 +124,25 @@ export function Composer({
         >
           <MicIcon color={listening ? colors.danger : colors.text} />
         </Pressable>
-        <Pressable
-          accessibilityRole="button"
-          onPress={submit}
-          style={[styles.send, { opacity: value.trim() && !submitting ? 1 : 0.35 }]}
-        >
-          {submitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.sendText}>↑</Text>}
-        </Pressable>
+        {canStop ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="停止这一轮"
+            onPress={onStop}
+            disabled={stopping}
+            style={[styles.send, { opacity: stopping ? 0.45 : 1 }]}
+          >
+            {stopping ? <ActivityIndicator color="#fff" /> : <View style={styles.stop} />}
+          </Pressable>
+        ) : (
+          <Pressable
+            accessibilityRole="button"
+            onPress={submit}
+            style={[styles.send, { opacity: value.trim() && !submitting ? 1 : 0.35 }]}
+          >
+            {submitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.sendText}>↑</Text>}
+          </Pressable>
+        )}
       </View>
     </View>
   );
@@ -210,4 +227,5 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   sendText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  stop: { width: 10, height: 10, borderRadius: 2, backgroundColor: '#fff' },
 });

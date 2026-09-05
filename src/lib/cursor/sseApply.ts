@@ -20,6 +20,11 @@ export type StreamApplyResult = {
   durationMs?: number;
 };
 
+export function ensureThinkingLine(lines: TranscriptLine[]): TranscriptLine[] {
+  if (lines.some((line) => line.kind === 'thinking')) return lines;
+  return [...lines, { kind: 'thinking', text: '', done: false }];
+}
+
 export function applySseEvent(
   event: SseEvent,
   lines: TranscriptLine[],

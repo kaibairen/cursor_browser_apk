@@ -1,4 +1,4 @@
-import { Platform } from 'react-native';
+import { fetch as expoFetch } from 'expo/fetch';
 import { streamUrl } from './client';
 import { CursorApiError, CursorAuthError } from './errors';
 import { consumeSseBuffer, type SseEvent } from './sseParse';
@@ -19,10 +19,7 @@ export function openRunStream(
   handlers: StreamHandlers,
   lastEventId?: string,
 ): () => void {
-  if (Platform.OS === 'web' && typeof fetch === 'function') {
-    return openFetchStream(apiKey, agentId, runId, handlers, lastEventId);
-  }
-  return openXhrStream(apiKey, agentId, runId, handlers, lastEventId);
+  return openFetchStream(apiKey, agentId, runId, handlers, lastEventId);
 }
 
 function streamHeaders(apiKey: string, lastEventId?: string): Record<string, string> {
@@ -49,10 +46,9 @@ function openFetchStream(
   const controller = new AbortController();
   void (async () => {
     try {
-      const res = await fetch(streamUrl(agentId, runId), {
+      const res = await expoFetch(streamUrl(agentId, runId), {
         headers: streamHeaders(apiKey, lastEventId),
         signal: controller.signal,
-        cache: 'no-store',
       });
       if (!res.ok) {
         handlers.onError?.(failStatus(res.status));

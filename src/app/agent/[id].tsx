@@ -37,7 +37,11 @@ import {
 import { isTerminalRun } from '../../lib/cursor/types';
 import { formatBytes } from '../../lib/format';
 import { colors, spacing } from '../../theme';
-import { isUserMessage, mergePreservingLocalUsers } from '../../features/agents/conversationView';
+import {
+  isLocalUserId,
+  isUserMessage,
+  mergePreservingLocalUsers,
+} from '../../features/agents/conversationView';
 import { ArtifactViewer, type ArtifactView } from '../../ui/artifactViewer';
 import { ChatLoading } from '../../ui/chatLoading';
 import { ChatText } from '../../ui/chatText';
@@ -76,6 +80,8 @@ export default function AgentDetailScreen() {
   const [tab, setTab] = useState<'chat' | 'diff'>('chat');
   const [prompt, setPrompt] = useState('');
   const [pendingUsers, setPendingUsers] = useState<{ id: string; text: string }[]>([]);
+  const [keptThinking, setKeptThinking] = useState<{ text: string; durationMs?: number } | null>(null);
+  const thinkingStarted = useRef<number | null>(null);
   const [modelId, setModelId] = useState('');
   const [modelPicker, setModelPicker] = useState(false);
   const [images, setImages] = useState<PickedImage[]>([]);
@@ -88,20 +94,34 @@ export default function AgentDetailScreen() {
   const voice = useVoiceInput(prompt, setPrompt);
   const scrollRef = useRef<ScrollView>(null);
 
-  const busy = agent?.status === 'ACTIVE' || live || followUp.isPending;
-
   useEffect(() => {
+    if (conversation.isFetching) return;
     const messages = conversation.data?.messages ?? [];
     if (!messages.length) return;
     setPendingUsers((current) =>
-      current.filter((item) => !messages.some((message) => isUserMessage(message) && message.text === item.text)),
+      current.filter(
+        (item) =>
+          !messages.some(
+            (message) =>
+              isUserMessage(message) && message.text === item.text && !isLocalUserId(message.id),
+          ),
+      ),
     );
-  }, [conversation.data?.messages]);
+  }, [conversation.data?.messages, conversation.isFetching]);
 
   useEffect(() => {
     if (!(live || followUp.isPending || stream.lines.length)) return;
     scrollRef.current?.scrollToEnd({ animated: false });
   }, [live, followUp.isPending, stream.lines, conversation.data?.messages?.length, pendingUsers.length]);
+
+  useEffect(() => {
+    const thinking = [...stream.lines].reverse().find((line) => line.kind === 'thinking');
+    if (!thinking || thinking.kind !== 'thinking') return;
+    const durationMs =
+      thinking.durationMs ??
+      (thinking.done && thinkingStarted.current ? Date.now() - thinkingStarted.current : undefined);
+    setKeptThinking({ text: thinking.text, durationMs });
+  }, [stream.lines]);
 
   const usageText = useMemo(() => {
     if (!usage.data) return '还没拉到用量。';
@@ -116,8 +136,11 @@ export default function AgentDetailScreen() {
     const pendingId = `pending-${Date.now()}`;
     const keptImages = images;
     setPendingUsers((current) => [...current, { id: pendingId, text }]);
+    thinkingStarted.current = Date.now();
+    setKeptThinking({ text: '' });
     setPrompt('');
     setImages([]);
+    requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: false }));
     try {
       await followUp.mutateAsync({
         prompt: { text, images: keptImages.length ? await toPromptImages(keptImages) : undefined },
@@ -125,10 +148,12 @@ export default function AgentDetailScreen() {
       });
     } catch (err) {
       setPendingUsers((current) => current.filter((item) => item.id !== pendingId));
+      setKeptThinking(null);
+      thinkingStarted.current = null;
       setPrompt(text);
       setImages(keptImages);
       if (isBusyError(err)) {
-        setError('这一轮还在写。写完后再发，或点右上角停止。');
+        setError('先点停止，再发下一条。');
         return;
       }
       setError(err instanceof Error ? err.message : '发送失败');
@@ -185,9 +210,13 @@ export default function AgentDetailScreen() {
   const hasUser = history.some(isUserMessage);
   const conversationReady = conversation.isSuccess || conversation.isError;
   const showChatSpinner = !hasLocalSend && history.length === 0 && conversation.isLoading;
-  const showLiveAssistant = stream.lines.length > 0 || (stream.live && hasUser);
-  const waitingForFirstToken =
-    hasUser && (stream.live || followUp.isPending) && stream.lines.length === 0;
+  const streamAssistant = stream.lines.find((line) => line.kind === 'assistant' && line.text);
+  const streamTools = stream.lines.filter((line) => line.kind === 'tool');
+  const showLiveAssistant = Boolean(streamAssistant) || (stream.live && hasUser);
+  const waitingForFirstToken = hasUser && (stream.live || followUp.isPending) && !streamAssistant;
+  const thinkingDone = Boolean(keptThinking && !live && !followUp.isPending);
+  const showThinking =
+    Boolean(keptThinking) || waitingForFirstToken || stream.lines.some((line) => line.kind === 'thinking');
   const chatEmpty =
     !showChatSpinner && conversationReady && history.length === 0 && stream.lines.length === 0 && !run?.result;
   const showResultFallback =
@@ -254,38 +283,42 @@ export default function AgentDetailScreen() {
               {!showChatSpinner
                 ? history.map((item, index) => {
                     const skipTrailingAssistant =
-                      showLiveAssistant && !isUserMessage(item) && index === history.length - 1;
+                      Boolean(streamAssistant) && !isUserMessage(item) && index === history.length - 1;
                     if (skipTrailingAssistant) return null;
                     if (isUserMessage(item)) {
-                      return <UserBubble key={item.id} text={item.text} />;
+                      return <UserBubble key={`user:${item.text}`} text={item.text} />;
                     }
                     return <ChatText key={item.id} text={item.text} />;
                   })
                 : null}
-              {!showChatSpinner && waitingForFirstToken ? <ThinkingBlock text="" /> : null}
-              {!showChatSpinner && showLiveAssistant
-                ? stream.lines.map((line, index) => {
-                    if (line.kind === 'tool') {
-                      return (
-                        <Text key={`${line.callId}-${index}`} style={styles.tool}>
-                          {toolLabel(line.name)}
-                          {line.status === 'completed' ? ' · 完成' : '…'}
-                        </Text>
-                      );
-                    }
-                    if (line.kind === 'thinking') {
-                      return (
-                        <ThinkingBlock
-                          key={`t-${index}`}
-                          text={line.text}
-                          done={line.done || !stream.live}
-                          durationMs={line.durationMs}
-                        />
-                      );
-                    }
-                    return <ChatText key={`a-${index}`} text={line.text} />;
-                  })
+              {!showChatSpinner && showThinking ? (
+                <ThinkingBlock
+                  text={keptThinking?.text ?? ''}
+                  done={thinkingDone}
+                  durationMs={keptThinking?.durationMs}
+                  defaultOpen={!thinkingDone}
+                />
+              ) : null}
+              {!showChatSpinner
+                ? streamTools.map((line, index) =>
+                    line.kind === 'tool' ? (
+                      <Text key={`${line.callId}-${index}`} style={styles.tool}>
+                        {toolLabel(line.name)}
+                        {line.status === 'completed' ? ' · 完成' : '…'}
+                      </Text>
+                    ) : null,
+                  )
                 : null}
+              {!showChatSpinner && streamAssistant && streamAssistant.kind === 'assistant' ? (
+                stream.live ? (
+                  <Text style={styles.liveText}>
+                    {streamAssistant.text}
+                    <Text style={styles.caret}>▍</Text>
+                  </Text>
+                ) : (
+                  <ChatText text={streamAssistant.text} />
+                )
+              ) : null}
               {!showChatSpinner && showResultFallback && run?.result ? <ChatText text={run.result} /> : null}
             </View>
           ) : (
@@ -329,16 +362,24 @@ export default function AgentDetailScreen() {
               placeholder="Add a follow up"
               onSubmit={() => void onFollowUp()}
               submitting={followUp.isPending}
+              onStop={
+                latestRunId && (live || cancel.isPending)
+                  ? () => {
+                      void cancel.mutateAsync(latestRunId).catch((err: unknown) => {
+                        setError(err instanceof Error ? err.message : '无法停止');
+                      });
+                      stream.stop();
+                    }
+                  : undefined
+              }
+              stopping={cancel.isPending}
               modelLabel={
                 modelId
                   ? models.data?.items.find((item) => item.id === modelId)?.displayName || modelId
                   : '沿用此任务模型'
               }
               onModelPress={() => setModelPicker(true)}
-              hint={
-                voice.error ??
-                (busy ? '这一轮还在写。可以先打字，写完再发；现在发可能会被拒绝。' : undefined)
-              }
+              hint={voice.error ?? undefined}
               listening={voice.listening}
               onMicStart={voice.onMicStart}
               onMicEnd={voice.onMicEnd}
@@ -448,6 +489,8 @@ const styles = StyleSheet.create({
   tabs: { paddingHorizontal: spacing.md, paddingBottom: 8 },
   content: { paddingHorizontal: spacing.lg, paddingBottom: 24 },
   chat: { gap: 14, paddingTop: 8 },
+  liveText: { color: colors.text, fontSize: 16, lineHeight: 24 },
+  caret: { color: colors.muted, fontSize: 16, lineHeight: 24 },
   tool: { color: colors.muted, fontSize: 13 },
   meta: { color: colors.muted, fontSize: 14, lineHeight: 20 },
   link: { color: colors.link, fontSize: 15 },

@@ -1,5 +1,6 @@
 import { consumeSseBuffer, parseSseBlock } from '../src/lib/cursor/sseParse.ts';
-import { applySseEvent, type TranscriptLine } from '../src/lib/cursor/sseApply.ts';
+import { applySseEvent, ensureThinkingLine, type TranscriptLine } from '../src/lib/cursor/sseApply.ts';
+import { isLocalUserId } from '../src/features/agents/conversationView.ts';
 
 const parsed = parseSseBlock('id: 1\nevent: assistant\ndata: {"text":"hi"}');
 if (!parsed || parsed.event !== 'assistant' || parsed.id !== '1' || parsed.data !== '{"text":"hi"}') {
@@ -72,6 +73,18 @@ if (interactionOnly.lines[0]?.kind !== 'thinking' || interactionOnly.lines[0].te
 }
 if (interactionOnly.lines[1]?.kind !== 'assistant' || interactionOnly.lines[1].text !== '好') {
   throw new Error('text-delta failed');
+}
+
+const withPlaceholder = ensureThinkingLine([]);
+if (withPlaceholder.length !== 1 || withPlaceholder[0]?.kind !== 'thinking' || withPlaceholder[0].text) {
+  throw new Error('ensureThinkingLine should add an empty thinking row');
+}
+if (ensureThinkingLine(withPlaceholder) !== withPlaceholder) {
+  throw new Error('ensureThinkingLine should be idempotent');
+}
+
+if (!isLocalUserId('local-user:你好') || !isLocalUserId('pending-1') || isLocalUserId('msg-server')) {
+  throw new Error('isLocalUserId failed');
 }
 
 console.log('sse parse + apply ok');
