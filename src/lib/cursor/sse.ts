@@ -33,6 +33,7 @@ function streamHeaders(apiKey: string, lastEventId?: string): Record<string, str
 
 function failStatus(status: number): Error {
   if (status === 401) return new CursorAuthError();
+  if (status === 409) return new CursorApiError(`SSE ${status}`, status, 'stream_unavailable');
   return new CursorApiError(`SSE ${status}`, status, status === 410 ? 'stream_expired' : undefined);
 }
 

@@ -57,10 +57,27 @@ if (!streamed.terminal) {
 
 const noDup = play([
   { event: 'assistant', data: '{"text":"A"}' },
-  { event: 'interaction_update', data: '{"type":"text-delta","text":"B"}' },
+  { event: 'interaction_update', data: '{"type":"text-delta","text":"A"}' },
 ]);
 if (noDup.lines.length !== 1 || noDup.lines[0]?.kind !== 'assistant' || noDup.lines[0].text !== 'A') {
-  throw new Error('simplified assistant should win over text-delta');
+  throw new Error('paired text-delta should not duplicate assistant');
+}
+
+const thinkingFirst = play([
+  { event: 'interaction_update', data: '{"type":"thinking-delta","text":"想"}' },
+  { event: 'thinking', data: '{"text":"想"}' },
+]);
+if (thinkingFirst.lines.length !== 1 || thinkingFirst.lines[0]?.text !== '想') {
+  throw new Error('paired thinking events should not duplicate');
+}
+
+const unavailable = applySseEvent(
+  { event: 'error', data: '{"code":"stream_unavailable"}' },
+  [],
+  { simplified: { assistant: false, thinking: false } },
+);
+if (!unavailable.retry || unavailable.terminal) {
+  throw new Error('stream_unavailable should retry, not end the run');
 }
 
 const interactionOnly = play([

@@ -134,6 +134,7 @@ export function useRun(agentId: string, runId: string | undefined, live: boolean
       if (!live) return false;
       const status = query.state.data?.status;
       if (status && isTerminalRun(status)) return false;
+      if (status === 'CREATING') return 700;
       return 4_000;
     },
     refetchIntervalInBackground: false,

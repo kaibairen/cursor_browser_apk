@@ -15,6 +15,7 @@ export type StreamApplyResult = {
   lines: TranscriptLine[];
   lastEventId?: string;
   terminal: boolean;
+  retry?: boolean;
   runStatus?: RunStatus;
   resultText?: string;
   durationMs?: number;
@@ -84,6 +85,14 @@ export function applySseEvent(
   }
 
   if (event.event === 'error') {
+    try {
+      const payload = JSON.parse(event.data) as { code?: string };
+      if (payload.code === 'stream_unavailable') {
+        return { lines, lastEventId, terminal: false, retry: true };
+      }
+    } catch {
+      // fall through
+    }
     return { lines: finishThinking(lines), lastEventId, terminal: true, runStatus: 'ERROR' };
   }
 
@@ -174,9 +183,13 @@ function appendText(
   if (!text) return lines;
   const last = lines[lines.length - 1];
   if (kind === 'assistant' && last?.kind === 'assistant') {
+    if (text === last.text || last.text.endsWith(text)) return lines;
+    if (text.startsWith(last.text)) return [...lines.slice(0, -1), { kind, text }];
     return [...lines.slice(0, -1), { kind, text: last.text + text }];
   }
   if (kind === 'thinking' && last?.kind === 'thinking' && !last.done) {
+    if (text === last.text || last.text.endsWith(text)) return lines;
+    if (text.startsWith(last.text)) return [...lines.slice(0, -1), { ...last, text }];
     return [...lines.slice(0, -1), { ...last, text: last.text + text }];
   }
   return [...lines, kind === 'thinking' ? { kind, text, done: false } : { kind, text }];

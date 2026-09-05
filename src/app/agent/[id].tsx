@@ -46,7 +46,6 @@ import { ArtifactViewer, type ArtifactView } from '../../ui/artifactViewer';
 import { ChatLoading } from '../../ui/chatLoading';
 import { ChatText } from '../../ui/chatText';
 import { ThinkingBlock } from '../../ui/thinkingBlock';
-import { useSmoothText } from '../../ui/useSmoothText';
 import { UserBubble } from '../../ui/userBubble';
 import { Composer } from '../../ui/composer';
 import { githubHttpsUrl, openExternal } from '../../ui/openUrl';
@@ -123,12 +122,6 @@ export default function AgentDetailScreen() {
       (thinking.done && thinkingStarted.current ? Date.now() - thinkingStarted.current : undefined);
     setKeptThinking({ text: thinking.text, durationMs });
   }, [stream.lines]);
-
-  const streamAssistantLine = stream.lines.find((line) => line.kind === 'assistant' && line.text);
-  const streamAssistantText = streamAssistantLine?.kind === 'assistant' ? streamAssistantLine.text : '';
-  const thinkingAnimating = Boolean((keptThinking || followUp.isPending || stream.live) && (live || followUp.isPending));
-  const smoothThinking = useSmoothText(keptThinking?.text ?? '', thinkingAnimating);
-  const smoothAssistant = useSmoothText(streamAssistantText, Boolean(stream.live && streamAssistantText));
 
   const usageText = useMemo(() => {
     if (!usage.data) return '还没拉到用量。';
@@ -218,12 +211,20 @@ export default function AgentDetailScreen() {
   const conversationReady = conversation.isSuccess || conversation.isError;
   const showChatSpinner = !hasLocalSend && history.length === 0 && conversation.isLoading;
   const streamAssistant = stream.lines.find((line) => line.kind === 'assistant' && line.text);
+  const streamThinking = stream.lines.find((line) => line.kind === 'thinking');
   const streamTools = stream.lines.filter((line) => line.kind === 'tool');
+  const thinkingBusy =
+    streamThinking?.kind === 'thinking' && Boolean(streamThinking.text) && !streamThinking.done;
   const showLiveAssistant = Boolean(streamAssistant) || (stream.live && hasUser);
-  const waitingForFirstToken = hasUser && (stream.live || followUp.isPending) && !streamAssistant;
-  const thinkingDone = Boolean(keptThinking && !live && !followUp.isPending);
+  const waitingForFirstToken = hasUser && (stream.live || followUp.isPending) && !streamAssistant && !thinkingBusy;
+  const thinkingDone =
+    Boolean(keptThinking && !live && !followUp.isPending) ||
+    (streamThinking?.kind === 'thinking' && streamThinking.done);
   const showThinking =
-    Boolean(keptThinking) || waitingForFirstToken || stream.lines.some((line) => line.kind === 'thinking');
+    Boolean(keptThinking) ||
+    waitingForFirstToken ||
+    streamThinking?.kind === 'thinking' ||
+    (stream.live && hasUser);
   const chatEmpty =
     !showChatSpinner && conversationReady && history.length === 0 && stream.lines.length === 0 && !run?.result;
   const showResultFallback =
@@ -300,10 +301,18 @@ export default function AgentDetailScreen() {
                 : null}
               {!showChatSpinner && showThinking ? (
                 <ThinkingBlock
-                  text={thinkingDone ? keptThinking?.text ?? '' : smoothThinking}
-                  done={thinkingDone}
-                  durationMs={keptThinking?.durationMs}
-                  defaultOpen={!thinkingDone}
+                  text={
+                    streamThinking?.kind === 'thinking' && streamThinking.text
+                      ? streamThinking.text
+                      : (keptThinking?.text ?? '')
+                  }
+                  done={thinkingDone && !thinkingBusy}
+                  durationMs={
+                    streamThinking?.kind === 'thinking'
+                      ? streamThinking.durationMs
+                      : keptThinking?.durationMs
+                  }
+                  defaultOpen={!thinkingDone || thinkingBusy}
                 />
               ) : null}
               {!showChatSpinner
@@ -316,10 +325,10 @@ export default function AgentDetailScreen() {
                     ) : null,
                   )
                 : null}
-              {!showChatSpinner && streamAssistant && streamAssistant.kind === 'assistant' ? (
+              {!showChatSpinner && !thinkingBusy && streamAssistant && streamAssistant.kind === 'assistant' ? (
                 stream.live ? (
                   <Text style={styles.liveText}>
-                    {smoothAssistant}
+                    {streamAssistant.text}
                     <Text style={styles.caret}>▍</Text>
                   </Text>
                 ) : (

@@ -8,6 +8,8 @@ import { useAuth, useOptionalApiKey } from '../auth/AuthContext';
 
 export type { TranscriptLine };
 
+const RETRY_MS = [250, 400, 700, 1100, 1800, 2800];
+
 export function useRunStream(agentId: string, runId: string | undefined, runStatus?: RunStatus) {
   const apiKey = useOptionalApiKey();
   const { handleApiError } = useAuth();
@@ -16,13 +18,17 @@ export function useRunStream(agentId: string, runId: string | undefined, runStat
   const [streamError, setStreamError] = useState<string | null>(null);
   const [usePolling, setUsePolling] = useState(false);
   const [ended, setEnded] = useState(false);
+  const [retryNonce, setRetryNonce] = useState(0);
   const linesRef = useRef<TranscriptLine[]>([]);
   const lastEventId = useRef<string | undefined>(undefined);
   const simplified = useRef({ assistant: false, thinking: false });
+  const retries = useRef(0);
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const live = Boolean(
     runId && apiKey && !usePolling && !ended && (!runStatus || !isTerminalRun(runStatus)),
   );
+  const canConnect = Boolean(live && runStatus === 'RUNNING');
 
   useEffect(() => {
     linesRef.current = [];
@@ -30,12 +36,18 @@ export function useRunStream(agentId: string, runId: string | undefined, runStat
     setStreamError(null);
     setUsePolling(false);
     setEnded(false);
+    setRetryNonce(0);
     lastEventId.current = undefined;
     simplified.current = { assistant: false, thinking: false };
+    retries.current = 0;
+    if (retryTimer.current) {
+      clearTimeout(retryTimer.current);
+      retryTimer.current = null;
+    }
   }, [runId]);
 
   useEffect(() => {
-    if (!live || !runId || !apiKey) return;
+    if (!canConnect || !runId || !apiKey) return;
 
     const stop = openRunStream(
       apiKey,
@@ -55,7 +67,12 @@ export function useRunStream(agentId: string, runId: string | undefined, runStat
           lastEventId.current = result.lastEventId;
           linesRef.current = result.lines;
           setLines(result.lines);
+          if (result.retry) {
+            scheduleRetry();
+            return;
+          }
           if (!result.terminal) return;
+          retries.current = 0;
           setEnded(true);
           queryClient.setQueryData(['run', agentId, runId], (current: Run | undefined) =>
             current
@@ -72,6 +89,10 @@ export function useRunStream(agentId: string, runId: string | undefined, runStat
           void queryClient.invalidateQueries({ queryKey: ['conversation', agentId] });
         },
         onError: (error) => {
+          if (error instanceof CursorApiError && error.code === 'stream_unavailable') {
+            scheduleRetry();
+            return;
+          }
           handleApiError(error);
           if (error instanceof CursorApiError && error.code === 'stream_expired') {
             setUsePolling(true);
@@ -85,14 +106,36 @@ export function useRunStream(agentId: string, runId: string | undefined, runStat
       lastEventId.current,
     );
 
-    return stop;
-  }, [apiKey, agentId, runId, live, handleApiError, queryClient]);
+    return () => {
+      stop();
+    };
+
+    function scheduleRetry() {
+      if (retryTimer.current) return;
+      const attempt = retries.current;
+      if (attempt >= RETRY_MS.length) {
+        setUsePolling(true);
+        setStreamError(null);
+        return;
+      }
+      const wait = RETRY_MS[attempt] ?? 2800;
+      retries.current = attempt + 1;
+      retryTimer.current = setTimeout(() => {
+        retryTimer.current = null;
+        setRetryNonce((value) => value + 1);
+      }, wait);
+    }
+  }, [apiKey, agentId, runId, canConnect, retryNonce, handleApiError, queryClient]);
+
+  useEffect(() => () => {
+    if (retryTimer.current) clearTimeout(retryTimer.current);
+  }, []);
 
   return {
     lines,
     streamError,
     usePolling,
-    live,
+    live: live || canConnect,
     stop: () => setEnded(true),
   };
 }
