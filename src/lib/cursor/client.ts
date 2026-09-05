@@ -1,4 +1,5 @@
-import { CursorApiError, CursorAuthError, isRetryableStatus } from './errors';
+import { Platform } from 'react-native';
+import { CursorApiError, CursorAuthError, friendlyNetworkError, isRetryableStatus } from './errors';
 import type {
   Agent,
   AgentUsage,
@@ -17,7 +18,9 @@ import type {
   ConversationMode,
 } from './types';
 
-const BASE_URL = 'https://api.cursor.com';
+function apiOrigin(): string {
+  return Platform.OS === 'web' ? '/cursor-api' : 'https://api.cursor.com';
+}
 
 type FetchOptions = {
   method?: string;
@@ -72,11 +75,16 @@ async function cursorFetchOnce<T>(
     headers['Content-Type'] = 'application/json';
   }
 
-  const res = await fetch(`${BASE_URL}${path}`, {
-    method,
-    headers,
-    body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${apiOrigin()}${path}`, {
+      method,
+      headers,
+      body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+    });
+  } catch (error) {
+    throw friendlyNetworkError(error);
+  }
   logRequest(method, path, res.status);
 
   if (!res.ok) {
@@ -219,5 +227,5 @@ export function listRepositories(apiKey: string): Promise<{ items: Repository[] 
 }
 
 export function streamUrl(agentId: string, runId: string): string {
-  return `${BASE_URL}/v1/agents/${agentId}/runs/${runId}/stream`;
+  return `${apiOrigin()}/v1/agents/${agentId}/runs/${runId}/stream`;
 }

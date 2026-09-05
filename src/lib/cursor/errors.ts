@@ -20,3 +20,10 @@ export class CursorAuthError extends CursorApiError {
 export function isRetryableStatus(status: number): boolean {
   return status === 429 || status >= 500;
 }
+
+export function friendlyNetworkError(error: unknown): Error {
+  if (error instanceof TypeError && /fetch|network|load/i.test(error.message)) {
+    return new Error('浏览器拦了直连。请硬刷新后再贴一次 Key；真机 APK 不受影响。');
+  }
+  return error instanceof Error ? error : new Error('网络错误');
+}
