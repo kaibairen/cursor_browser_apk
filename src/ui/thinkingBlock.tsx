@@ -6,12 +6,14 @@ export function ThinkingBlock({
   text,
   done,
   durationMs,
+  defaultOpen,
 }: {
   text: string;
   done?: boolean;
   durationMs?: number;
+  defaultOpen?: boolean;
 }) {
-  const [open, setOpen] = useState(!done);
+  const [open, setOpen] = useState(defaultOpen ?? !done);
 
   useEffect(() => {
     if (!done) setOpen(true);
@@ -37,6 +39,6 @@ export function ThinkingBlock({
 
 const styles = StyleSheet.create({
   wrap: { gap: 6 },
-  title: { color: colors.muted, fontSize: 13, fontWeight: '600' },
-  body: { color: colors.muted, fontSize: 13, lineHeight: 19, paddingLeft: spacing.sm },
+  title: { color: colors.muted, fontSize: 14, fontWeight: '600' },
+  body: { color: colors.muted, fontSize: 14, lineHeight: 20, paddingLeft: spacing.sm },
 });

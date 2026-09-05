@@ -50,14 +50,29 @@ const DEMO_MARKDOWN = `## 3. 基于什么指标，对应什么情况
 const DEMO_THINKING = '用户在问判断标准。先对上「会算 / 答对 / 错配」三列，再解释「会算但收尾选飞」对应哪一行。';
 const DEMO_FOLLOW_REPLY = '黑色气泡会先出现。下面先展开思考，再一段一段写出回复。';
 
+type DemoTurn = {
+  user: string;
+  thinking?: string;
+  thinkingMs?: number;
+  reply?: string;
+};
+
+const EXAMPLE_THREAD: DemoTurn[] = [
+  {
+    user: DEMO_QUESTION,
+    thinking: DEMO_THINKING,
+    thinkingMs: 2200,
+    reply: DEMO_MARKDOWN,
+  },
+];
+
 export default function PreviewScreen() {
   const insets = useSafeAreaInsets();
   const [page, setPage] = useState<'home' | 'detail'>('home');
   const [tab, setTab] = useState('chat');
   const [homeText, setHomeText] = useState('');
   const [follow, setFollow] = useState('');
-  const [sent, setSent] = useState([DEMO_QUESTION]);
-  const [replies, setReplies] = useState([DEMO_MARKDOWN]);
+  const [thread, setThread] = useState<DemoTurn[]>(EXAMPLE_THREAD);
   const [model, setModel] = useState('默认模型');
   const [picker, setPicker] = useState<'model' | 'repo' | null>(null);
   const [repo, setRepo] = useState('默认仓库');
@@ -72,24 +87,24 @@ export default function PreviewScreen() {
   useEffect(() => {
     if (!turn.waiting) return;
     scrollRef.current?.scrollToEnd({ animated: false });
-  }, [turn.waiting, turn.thinking, turn.reply, sent.length]);
+  }, [turn.waiting, turn.thinking, turn.reply, thread.length]);
 
   function openFinishedExample() {
     turn.stop();
-    setSent([DEMO_QUESTION]);
-    setReplies([DEMO_MARKDOWN]);
+    setThread(EXAMPLE_THREAD);
     setPage('detail');
   }
 
   function startTurn(userText: string, reply: string, reset = false) {
-    if (reset) {
-      setSent([userText]);
-      setReplies([]);
-    } else {
-      setSent((current) => [...current, userText]);
-    }
-    turn.start(DEMO_THINKING, reply, () => {
-      setReplies((current) => [...current, reply]);
+    setThread((current) => (reset ? [{ user: userText }] : [...current, { user: userText }]));
+    turn.start(DEMO_THINKING, reply, (thinking, thinkingMs) => {
+      setThread((current) => {
+        const next = [...current];
+        const last = next[next.length - 1];
+        if (!last) return [{ user: userText, thinking, thinkingMs, reply }];
+        next[next.length - 1] = { ...last, thinking, thinkingMs, reply };
+        return next;
+      });
     });
     setPage('detail');
   }
@@ -129,16 +144,33 @@ export default function PreviewScreen() {
         <ScrollView ref={scrollRef} contentContainerStyle={styles.chat}>
           {tab === 'chat' ? (
             <View style={{ gap: 14 }}>
-              {sent.map((text, index) => (
-                <View key={`${index}-${text}`} style={{ gap: 14 }}>
-                  <UserBubble text={text} />
-                  {replies[index] ? <ChatText text={replies[index]} /> : null}
+              {thread.map((item, index) => (
+                <View key={`${index}-${item.user}`} style={{ gap: 14 }}>
+                  <UserBubble text={item.user} />
+                  {item.thinking ? (
+                    <ThinkingBlock
+                      text={item.thinking}
+                      done
+                      durationMs={item.thinkingMs}
+                      defaultOpen={false}
+                    />
+                  ) : null}
+                  {item.reply ? <ChatText text={item.reply} /> : null}
                 </View>
               ))}
               {turn.waiting ? (
                 <>
-                  <ThinkingBlock text={turn.thinking} done={turn.thinkingDone} />
-                  {turn.reply ? <ChatText text={turn.reply} /> : null}
+                  <ThinkingBlock
+                    text={turn.thinking}
+                    done={turn.thinkingDone}
+                    durationMs={turn.thinkingDone ? turn.thinkingMs : undefined}
+                  />
+                  {turn.reply ? (
+                    <Text style={styles.liveText}>
+                      {turn.reply}
+                      <Text style={styles.caret}>▍</Text>
+                    </Text>
+                  ) : null}
                 </>
               ) : null}
             </View>
@@ -293,8 +325,10 @@ function usePreviewTurn() {
   const [waiting, setWaiting] = useState(false);
   const [thinking, setThinking] = useState('');
   const [thinkingDone, setThinkingDone] = useState(false);
+  const [thinkingMs, setThinkingMs] = useState(0);
   const [reply, setReply] = useState('');
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const startedAt = useRef(0);
 
   function clearTimers() {
     for (const id of timers.current) clearTimeout(id);
@@ -306,10 +340,16 @@ function usePreviewTurn() {
     timers.current.push(id);
   }
 
-  function typeOut(text: string, delay: number, onTick: (value: string) => void, onDone: () => void) {
+  function typeOut(
+    text: string,
+    delay: number,
+    stepSize: number,
+    onTick: (value: string) => void,
+    onDone: () => void,
+  ) {
     let index = 0;
     const step = () => {
-      index = Math.min(text.length, index + 2);
+      index = Math.min(text.length, index + stepSize);
       onTick(text.slice(0, index));
       if (index >= text.length) {
         onDone();
@@ -325,24 +365,35 @@ function usePreviewTurn() {
     setWaiting(false);
     setThinking('');
     setThinkingDone(false);
+    setThinkingMs(0);
     setReply('');
   }
 
-  function start(thinkingText: string, replyText: string, onComplete: () => void) {
+  function start(
+    thinkingText: string,
+    replyText: string,
+    onComplete: (thinking: string, thinkingMs: number) => void,
+  ) {
     clearTimers();
+    startedAt.current = Date.now();
     setWaiting(true);
     setThinking('');
     setThinkingDone(false);
+    setThinkingMs(0);
     setReply('');
-    later(180, () => {
-      typeOut(thinkingText, 18, setThinking, () => {
+    later(500, () => {
+      typeOut(thinkingText, 36, 1, setThinking, () => {
+        const duration = Math.max(800, Date.now() - startedAt.current);
+        setThinkingMs(duration);
         setThinkingDone(true);
-        later(220, () => {
-          typeOut(replyText, 16, setReply, () => {
-            onComplete();
+        later(450, () => {
+          const chunk = replyText.length > 80 ? 4 : 1;
+          typeOut(replyText, 32, chunk, setReply, () => {
+            onComplete(thinkingText, duration);
             setWaiting(false);
             setThinking('');
             setThinkingDone(false);
+            setThinkingMs(0);
             setReply('');
           });
         });
@@ -352,7 +403,7 @@ function usePreviewTurn() {
 
   useEffect(() => () => clearTimers(), []);
 
-  return { waiting, thinking, thinkingDone, reply, start, stop };
+  return { waiting, thinking, thinkingDone, thinkingMs, reply, start, stop };
 }
 
 const styles = StyleSheet.create({
@@ -385,6 +436,8 @@ const styles = StyleSheet.create({
   tabs: { paddingHorizontal: spacing.md, paddingBottom: 8 },
   chat: { paddingHorizontal: spacing.lg, paddingBottom: 24, gap: 12 },
   composerWrap: { paddingHorizontal: spacing.md, paddingTop: 8, backgroundColor: colors.bg },
+  liveText: { color: colors.text, fontSize: 16, lineHeight: 24 },
+  caret: { color: colors.muted, fontSize: 16, lineHeight: 24 },
   diffTitle: { color: colors.text, fontSize: 15, fontWeight: '600' },
   link: { color: colors.link, fontSize: 15 },
   meta: { color: colors.muted, fontSize: 13 },
