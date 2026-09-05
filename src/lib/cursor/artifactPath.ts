@@ -60,16 +60,23 @@ export function assignChatMedia<
   items: T[],
   messages: M[],
   runs: RunStamp[] = [],
-): { byUserIndex: Record<number, T[]>; orphan: T[] } {
+): {
+  byUserIndex: Record<number, T[]>;
+  byIndex: Record<number, T[]>;
+  leftover: T[];
+  orphan: T[];
+} {
   const media = mediaArtifacts(items);
   const unused = new Set(media.map((item) => item.path));
   const byUserIndex: Record<number, T[]> = {};
+  const byIndex: Record<number, T[]> = {};
   const userIndices = messages.flatMap((message, index) => (/user/i.test(message.type) ? [index] : []));
 
   messages.forEach((message, index) => {
     if (/user/i.test(message.type)) return;
     const hit = media.filter((item) => unused.has(item.path) && artifactMentionedInText(item.path, message.text));
     if (!hit.length) return;
+    addAt(byIndex, index, hit);
     addAt(byUserIndex, ownerUserIndex(messages, index), hit);
     for (const item of hit) unused.delete(item.path);
   });
@@ -92,10 +99,14 @@ export function assignChatMedia<
   const lastUser = userIndices[userIndices.length - 1];
   if (leftover.length && lastUser != null) {
     addAt(byUserIndex, lastUser, leftover);
-    return { byUserIndex: sortAssigned(byUserIndex), orphan: [] };
   }
 
-  return { byUserIndex: sortAssigned(byUserIndex), orphan: leftover };
+  return {
+    byUserIndex: sortAssigned(byUserIndex),
+    byIndex: sortAssigned(byIndex),
+    leftover,
+    orphan: lastUser == null ? leftover : [],
+  };
 }
 
 export function ownerUserIndex(messages: { type: string }[], index: number): number {

@@ -345,6 +345,8 @@ export default function AgentDetailScreen() {
   ];
   const pendingById = new Map(pendingUsers.map((item) => [item.id, item]));
   const chatMedia = assignChatMedia(artifacts.data?.items ?? [], history, runs.data?.items ?? []);
+  const mediaByUser = chatMedia.byUserIndex ?? {};
+  const orphanMedia = chatMedia.orphan ?? chatMedia.leftover ?? [];
 
   return (
     <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -428,7 +430,7 @@ export default function AgentDetailScreen() {
                           {showMediaHere ? (
                             <ChatArtifactMedia
                               agentId={agentId ?? ''}
-                              items={chatMedia.byUserIndex[index] ?? []}
+                              items={mediaByUser[index] ?? []}
                               onOpen={(path) => void openArtifact(path)}
                             />
                           ) : null}
@@ -444,7 +446,7 @@ export default function AgentDetailScreen() {
                         {showMediaHere ? (
                           <ChatArtifactMedia
                             agentId={agentId ?? ''}
-                            items={chatMedia.byUserIndex[owner] ?? []}
+                            items={mediaByUser[owner] ?? []}
                             onOpen={(path) => void openArtifact(path)}
                           />
                         ) : null}
@@ -462,7 +464,7 @@ export default function AgentDetailScreen() {
                   />
                   <ChatArtifactMedia
                     agentId={agentId ?? ''}
-                    items={chatMedia.orphan}
+                    items={orphanMedia}
                     onOpen={(path) => void openArtifact(path)}
                   />
                 </>
@@ -471,7 +473,7 @@ export default function AgentDetailScreen() {
               {!showChatSpinner && showResultFallback && latestUserIndex >= 0 ? (
                 <ChatArtifactMedia
                   agentId={agentId ?? ''}
-                  items={chatMedia.byUserIndex[latestUserIndex] ?? []}
+                  items={mediaByUser[latestUserIndex] ?? []}
                   onOpen={(path) => void openArtifact(path)}
                 />
               ) : null}

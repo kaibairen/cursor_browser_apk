@@ -65,6 +65,10 @@ if (assigned.byUserIndex[2]?.some((item) => item.path.endsWith('.mp4')) !== true
   throw new Error('mp4 should sit with the follow-up that produced it');
 }
 if (assigned.orphan.length) throw new Error('dated media should not be orphaned');
+if (!Array.isArray(assigned.leftover)) throw new Error('leftover must always be an array');
+if (!assigned.byIndex[1]?.some((item) => item.path.endsWith('preview-chat.png'))) {
+  throw new Error('mentioned image should also stay on the assistant index');
+}
 
 const undated = assignChatMedia(
   [{ path: 'artifacts/late.mp4', sizeBytes: 3, updatedAt: '' }],
