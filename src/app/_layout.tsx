@@ -24,18 +24,19 @@ function AuthGate({ children }: { children: ReactNode }) {
   const router = useRouter();
   const root = segments[0];
     const onSetup = root === 'setup';
+    const onPreview = root === 'preview';
     const onProtected = root === '(tabs)' || root === 'agent' || root === 'settings';
 
     useEffect(() => {
     if (!ready) {
       return;
     }
-    if (!signedIn && !onSetup) {
+    if (!signedIn && !onSetup && !onPreview) {
       router.replace('/setup');
     } else if (signedIn && onSetup) {
       router.replace('/(tabs)');
     }
-  }, [ready, signedIn, onSetup, router]);
+  }, [ready, signedIn, onSetup, onPreview, router]);
 
   if (!ready || (!signedIn && onProtected)) {
     return (
@@ -65,6 +66,7 @@ export default function RootLayout() {
             >
               <Stack.Screen name="index" />
               <Stack.Screen name="setup" />
+              <Stack.Screen name="preview" />
               <Stack.Screen name="(tabs)" />
               <Stack.Screen name="settings" />
               <Stack.Screen name="agent/[id]" />
