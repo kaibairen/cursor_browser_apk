@@ -9,6 +9,7 @@ import type { ConversationMode } from '../lib/cursor/types';
 import { usePrefs } from '../storage/usePrefs';
 import { colors, spacing } from '../theme';
 import { Button, Field } from '../ui/primitives';
+import { iatConfigured, readIatCredentials, writeIatCredentials } from '../features/speech/credentials';
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -19,12 +20,26 @@ export default function SettingsScreen() {
   const [branch, setBranch] = useState('main');
   const [envName, setEnvName] = useState('');
   const [saved, setSaved] = useState<string | null>(null);
+  const [appId, setAppId] = useState('');
+  const [xfKey, setXfKey] = useState('');
+  const [xfSecret, setXfSecret] = useState('');
+  const [xfReady, setXfReady] = useState(false);
 
   useEffect(() => {
     if (!prefs) return;
     setBranch(prefs.defaultBranch);
     setEnvName(prefs.defaultEnvName ?? '');
   }, [prefs]);
+
+  useEffect(() => {
+    void readIatCredentials().then((creds) => {
+      if (!creds) return;
+      setAppId(creds.appId);
+      setXfKey(creds.apiKey);
+      setXfSecret(creds.apiSecret);
+      setXfReady(true);
+    });
+  }, []);
 
   async function persist(partial: Parameters<typeof update>[0]) {
     await update(partial);
@@ -74,6 +89,25 @@ export default function SettingsScreen() {
           onPress={() => void persist({ defaultBranch: branch.trim() || 'main', defaultEnvName: envName.trim() || undefined })}
         />
         {saved ? <Text style={styles.ok}>{saved}</Text> : null}
+
+        <Text style={styles.label}>语音听写（讯飞）</Text>
+        <Text style={styles.meta}>
+          按住作曲家里的「语音」说话。密钥只存在这台设备上。要开通「语音听写（流式版）」，Spark Lite 聊天接口不能转文字。
+        </Text>
+        <Field value={appId} onChangeText={setAppId} placeholder="APPID" />
+        <Field value={xfKey} onChangeText={setXfKey} placeholder="APIKey" />
+        <Field value={xfSecret} onChangeText={setXfSecret} placeholder="APISecret" secureTextEntry />
+        <Button
+          title={xfReady ? '更新听写密钥' : '保存听写密钥'}
+          variant="ghost"
+          disabled={!iatConfigured({ appId, apiKey: xfKey, apiSecret: xfSecret })}
+          onPress={() => {
+            void writeIatCredentials({ appId, apiKey: xfKey, apiSecret: xfSecret }).then(() => {
+              setXfReady(true);
+              setSaved('听写密钥已保存');
+            });
+          }}
+        />
 
         <Text style={styles.label}>仓库列表</Text>
         <Text style={styles.meta}>偶尔刷新即可，平时可以手输地址。</Text>

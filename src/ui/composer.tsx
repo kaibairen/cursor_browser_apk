@@ -13,6 +13,9 @@ type ComposerProps = {
   onAttach?: () => void;
   attachLabel?: string;
   hint?: string;
+  listening?: boolean;
+  onMicStart?: () => void;
+  onMicEnd?: () => void;
   children?: ReactNode;
 };
 
@@ -27,6 +30,9 @@ export function Composer({
   onAttach,
   attachLabel,
   hint,
+  listening,
+  onMicStart,
+  onMicEnd,
   children,
 }: ComposerProps) {
   function submit() {
@@ -40,7 +46,7 @@ export function Composer({
       <TextInput
         value={value}
         onChangeText={onChangeText}
-        placeholder={placeholder}
+        placeholder={listening ? '正在听…松手结束' : placeholder}
         placeholderTextColor={colors.muted}
         multiline
         autoCapitalize="sentences"
@@ -59,6 +65,17 @@ export function Composer({
           hitSlop={8}
         >
           <Text style={styles.plusText}>+</Text>
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="按住说话"
+          onPressIn={onMicStart}
+          onPressOut={onMicEnd}
+          disabled={!onMicStart}
+          style={[styles.mic, listening && styles.micLive, { opacity: onMicStart ? 1 : 0.45 }]}
+          hitSlop={8}
+        >
+          <Text style={[styles.micText, listening && styles.micTextLive]}>{listening ? '听' : '语音'}</Text>
         </Pressable>
         {onModelPress ? (
           <Pressable accessibilityRole="button" onPress={onModelPress} style={styles.model} hitSlop={8}>
@@ -116,9 +133,21 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   plusText: { color: colors.text, fontSize: 18, lineHeight: 20, fontWeight: '500' },
-  model: { maxWidth: 180, paddingVertical: 4 },
+  mic: {
+    minWidth: 40,
+    height: 28,
+    borderRadius: 14,
+    paddingHorizontal: 8,
+    backgroundColor: colors.chip,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  micLive: { backgroundColor: '#fee2e2' },
+  micText: { color: colors.text, fontSize: 12, fontWeight: '600' },
+  micTextLive: { color: colors.danger },
+  model: { maxWidth: 160, paddingVertical: 4 },
   modelText: { color: colors.text, fontSize: 13, fontWeight: '500' },
-  modelLocked: { maxWidth: 200, color: colors.muted, fontSize: 13, fontWeight: '500' },
+  modelLocked: { maxWidth: 180, color: colors.muted, fontSize: 13, fontWeight: '500' },
   send: {
     width: 32,
     height: 32,

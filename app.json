@@ -9,10 +9,14 @@
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.kaibairen.agentsconsole"
+      "bundleIdentifier": "com.kaibairen.agentsconsole",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "按住说话，转成文字发给 Agent。"
+      }
     },
     "android": {
       "package": "com.kaibairen.agentsconsole",
+      "permissions": ["RECORD_AUDIO", "android.permission.RECORD_AUDIO"],
       "allowBackup": false,
       "adaptiveIcon": {
         "backgroundColor": "#0d1117",
@@ -35,6 +39,12 @@
         {
           "photosPermission": "允许选择图片作为任务附件。",
           "microphonePermission": false
+        }
+      ],
+      [
+        "expo-av",
+        {
+          "microphonePermission": "按住说话，转成文字发给 Agent。"
         }
       ]
     ],
