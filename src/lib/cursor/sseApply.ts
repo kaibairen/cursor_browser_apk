@@ -106,6 +106,21 @@ export function applySseEvent(
   return { lines, lastEventId, terminal: false };
 }
 
+export function applySseEvents(
+  events: SseEvent[],
+  lines: TranscriptLine[],
+  ctx: StreamApplyContext,
+): StreamApplyResult {
+  let current = lines;
+  let result: StreamApplyResult = { lines: current, lastEventId: ctx.lastEventId, terminal: false };
+  for (const event of events) {
+    result = applySseEvent(event, current, ctx);
+    current = result.lines;
+    if (result.retry || result.terminal) break;
+  }
+  return result;
+}
+
 function readTextPayload(raw: string): string {
   try {
     const payload = JSON.parse(raw) as { text?: unknown };

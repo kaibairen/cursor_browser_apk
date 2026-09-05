@@ -26,6 +26,7 @@ import {
   unarchiveAgent,
 } from '../../lib/cursor/client';
 import { CursorApiError, isNetworkError } from '../../lib/cursor/errors';
+import { isNetworkDown, networkBackoffMs } from '../../lib/cursor/reconnect';
 import {
   isTerminalRun,
   type Agent,
@@ -35,6 +36,7 @@ import {
   type CreateAgentRequest,
   type Paginated,
   type PromptInput,
+  type Run,
 } from '../../lib/cursor/types';
 import { useAuth, useOptionalApiKey } from '../auth/AuthContext';
 import { loadPrefs, rememberAgentModel, rememberAgentProjects, rememberRepo, savePrefs } from '../../storage/prefs';
@@ -111,26 +113,34 @@ export function useAgent(id: string) {
       }
     },
     placeholderData: () => findListedAgent(queryClient, id) as Agent | undefined,
-    refetchInterval: 12_000,
+    refetchInterval: () => (isNetworkDown() ? Math.max(4_000, networkBackoffMs()) : 12_000),
     refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
   });
 }
 
 export function useRun(agentId: string, runId: string | undefined, live: boolean) {
   const apiKey = useOptionalApiKey();
   const { handleApiError } = useAuth();
+  const queryClient = useQueryClient();
   return useQuery({
     queryKey: ['run', agentId, runId],
     enabled: Boolean(apiKey && runId),
     queryFn: async () => {
       try {
-        return await getRun(requireApiKey(apiKey), agentId, runId!);
+        const run = await getRun(requireApiKey(apiKey), agentId, runId!);
+        const previous = queryClient.getQueryData<Run>(['run', agentId, runId]);
+        if (isTerminalRun(run.status) && (!previous || !isTerminalRun(previous.status))) {
+          void queryClient.invalidateQueries({ queryKey: ['conversation', agentId] });
+        }
+        return run;
       } catch (error) {
         handleApiError(error);
         throw error;
       }
     },
     refetchInterval: (query) => {
+      if (isNetworkDown()) return Math.max(4_000, networkBackoffMs());
       if (!live) return false;
       const status = query.state.data?.status;
       if (status && isTerminalRun(status)) return false;
@@ -138,6 +148,7 @@ export function useRun(agentId: string, runId: string | undefined, live: boolean
       return 4_000;
     },
     refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
   });
 }
 
@@ -161,8 +172,12 @@ export function useConversation(agentId: string, live: boolean) {
       }
     },
     placeholderData: (previous) => previous,
-    refetchInterval: live ? 8_000 : false,
+    refetchInterval: () => {
+      if (isNetworkDown()) return Math.max(4_000, networkBackoffMs());
+      return live ? 8_000 : false;
+    },
     refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
   });
 }
 

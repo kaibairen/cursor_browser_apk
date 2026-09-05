@@ -54,6 +54,7 @@ import { githubHttpsUrl, openExternal } from '../../ui/openUrl';
 import { Segmented } from '../../ui/primitives';
 import { ActionSheet } from '../../ui/sheet';
 import { useVoiceInput } from '../../features/speech/useVoiceInput';
+import { useNetworkDown } from '../../features/agents/useNetworkDown';
 import { modelDisplayName, resolveStoredModelId } from '../../features/agents/models';
 import { loadPrefs, rememberAgentModel } from '../../storage/prefs';
 import { useQueryClient } from '@tanstack/react-query';
@@ -71,8 +72,10 @@ export default function AgentDetailScreen() {
   const runQuery = useRun(agentId, latestRunId, true);
   const run = runQuery.data;
   const stream = useRunStream(agentId, latestRunId, run?.status);
-  const live = Boolean((run && !isTerminalRun(run.status)) || stream.live);
+  const runDone = Boolean(run && isTerminalRun(run.status));
+  const live = Boolean((run && !isTerminalRun(run.status)) || (stream.live && !runDone));
   const conversation = useConversation(agentId, live);
+  const proxyDown = useNetworkDown();
   const followUp = useCreateFollowUp(agentId);
   const cancel = useCancelRun(agentId);
   const archive = useArchiveAgent(agentId);
@@ -290,15 +293,17 @@ export default function AgentDetailScreen() {
   const thinkingBusy =
     streamThinking?.kind === 'thinking' && Boolean(streamThinking.text) && !streamThinking.done;
   const showLiveAssistant = Boolean(streamAssistant) || (stream.live && hasUser);
-  const waitingForFirstToken = hasUser && (stream.live || followUp.isPending) && !streamAssistant && !thinkingBusy;
+  const waitingForFirstToken =
+    !runDone && hasUser && (stream.live || followUp.isPending) && !streamAssistant && !thinkingBusy;
   const thinkingDone =
+    runDone ||
     Boolean(keptThinking && !live && !followUp.isPending) ||
     (streamThinking?.kind === 'thinking' && streamThinking.done);
   const showThinking =
     Boolean(keptThinking) ||
     waitingForFirstToken ||
     streamThinking?.kind === 'thinking' ||
-    (stream.live && hasUser) ||
+    (!runDone && stream.live && hasUser) ||
     followUp.isPending;
   const latestUserIndex = lastUserIndex(history);
   const latestAssistantIndex = lastAssistantAfter(history, latestUserIndex);
@@ -374,6 +379,12 @@ export default function AgentDetailScreen() {
           {tab === 'chat' ? (
             <View style={styles.chat}>
               {showChatSpinner ? <ChatLoading label="加载对话…" /> : null}
+              {proxyDown ? (
+                <Text style={styles.meta}>网页代理断了，正在重连。连上后会一次拉齐已完成的回复。</Text>
+              ) : null}
+              {runDone && conversation.isFetching && !streamAssistant && !history.some((item) => !isUserMessage(item)) ? (
+                <Text style={styles.meta}>正在拉取已完成的回复…</Text>
+              ) : null}
               {agentRefreshError ? <Text style={styles.error}>{agentRefreshError}</Text> : null}
               {conversationError ? <Text style={styles.error}>{conversationError}</Text> : null}
               {stream.streamError ? <Text style={styles.error}>{stream.streamError}</Text> : null}

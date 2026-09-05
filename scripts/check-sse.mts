@@ -6,7 +6,14 @@ import {
   isNetworkError,
   isRetryableError,
 } from '../src/lib/cursor/errors.ts';
-import { applySseEvent, ensureThinkingLine, type TranscriptLine } from '../src/lib/cursor/sseApply.ts';
+import { applySseEvent, applySseEvents, ensureThinkingLine, type TranscriptLine } from '../src/lib/cursor/sseApply.ts';
+import {
+  isNetworkDown,
+  networkBackoffMs,
+  noteNetworkFail,
+  noteNetworkOk,
+  resetNetworkState,
+} from '../src/lib/cursor/reconnect.ts';
 import { isLocalUserId, lastAssistantAfter, lastUserIndex, mergeConversation, mergePreservingLocalUsers, seedUserMessage } from '../src/features/agents/conversationView.ts';
 import { eventPhase, prepareBurst, replayDelayMs } from '../src/lib/cursor/ssePace.ts';
 import { defaultCatalogModelId, resolveStoredModelId } from '../src/features/agents/models.ts';
@@ -231,6 +238,30 @@ if (!(refused instanceof CursorNetworkError) || refused.message !== NETWORK_MESS
 }
 if (!isNetworkError(new Error('net::ERR_CONNECTION_REFUSED')) || !isRetryableError(refused)) {
   throw new Error('connection refused should retry');
+}
+
+resetNetworkState();
+noteNetworkFail();
+if (isNetworkDown()) throw new Error('one failure should not trip the breaker');
+noteNetworkFail();
+if (!isNetworkDown() || networkBackoffMs() < 1000) {
+  throw new Error('two failures should back off');
+}
+noteNetworkOk();
+if (isNetworkDown()) throw new Error('success should clear the breaker');
+
+const dumped = applySseEvents(
+  [
+    { event: 'thinking', data: '{"text":"先看目录"}' },
+    { event: 'assistant', data: '{"text":"apps 下面有 web"}' },
+    { event: 'assistant', data: '{"text":"apps 下面有 web 和 mobile"}' },
+    { event: 'result', data: '{"status":"FINISHED","text":"apps 下面有 web 和 mobile"}' },
+  ],
+  [],
+  { simplified: { assistant: false, thinking: false } },
+);
+if (!dumped.terminal || dumped.lines.find((line) => line.kind === 'assistant')?.text !== 'apps 下面有 web 和 mobile') {
+  throw new Error(`finished dump should apply in one shot: ${JSON.stringify(dumped.lines)}`);
 }
 
 console.log('sse parse + apply ok');

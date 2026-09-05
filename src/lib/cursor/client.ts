@@ -1,5 +1,6 @@
 import { Platform } from 'react-native';
 import { CursorApiError, CursorAuthError, friendlyNetworkError, isRetryableError } from './errors';
+import { fetchAttemptsWhenUnstable, noteNetworkFail, noteNetworkOk } from './reconnect';
 import type {
   Agent,
   AgentConversation,
@@ -89,8 +90,10 @@ async function cursorFetchOnce<T>(
       body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
     });
   } catch (error) {
+    noteNetworkFail();
     throw friendlyNetworkError(error);
   }
+  noteNetworkOk();
   logRequest(method, path, res.status);
 
   if (!res.ok) {
@@ -107,7 +110,7 @@ export async function cursorFetch<T>(
   path: string,
   options: FetchOptions = {},
 ): Promise<T> {
-  const maxAttempts = 3;
+  const maxAttempts = fetchAttemptsWhenUnstable();
   let lastError: unknown;
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     try {

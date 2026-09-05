@@ -1,6 +1,7 @@
 import { fetch as expoFetch } from 'expo/fetch';
 import { streamUrl } from './client';
 import { CursorApiError, CursorAuthError, friendlyNetworkError } from './errors';
+import { noteNetworkFail, noteNetworkOk } from './reconnect';
 import { consumeSseBuffer, type SseEvent } from './sseParse';
 
 export type { SseEvent } from './sseParse';
@@ -68,6 +69,7 @@ function openFetchStream(
         handlers.onError?.(failStatus(res.status));
         return;
       }
+      noteNetworkOk();
       handlers.onOpen?.();
       const reader = res.body?.getReader();
       if (!reader) {
@@ -90,6 +92,7 @@ function openFetchStream(
       }
     } catch (error) {
       if (controller.signal.aborted) return;
+      noteNetworkFail();
       handlers.onError?.(friendlyNetworkError(error));
     }
   })();
