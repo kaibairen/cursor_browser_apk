@@ -24,9 +24,16 @@ import {
   unarchiveAgent,
 } from '../../lib/cursor/client';
 import { CursorApiError } from '../../lib/cursor/errors';
-import { isTerminalRun, type ConversationMode, type CreateAgentRequest, type PromptInput } from '../../lib/cursor/types';
+import {
+  isTerminalRun,
+  type AgentConversation,
+  type ConversationMode,
+  type CreateAgentRequest,
+  type PromptInput,
+} from '../../lib/cursor/types';
 import { useAuth, useOptionalApiKey } from '../auth/AuthContext';
 import { loadPrefs, rememberAgentProjects, rememberRepo, savePrefs } from '../../storage/prefs';
+import { mergePreservingLocalUsers, seedUserMessage } from './conversationView';
 import { agentProjectEntry } from './projects';
 
 function requireApiKey(apiKey: string | null): string {
@@ -107,17 +114,24 @@ export function useRun(agentId: string, runId: string | undefined, live: boolean
 export function useConversation(agentId: string, live: boolean) {
   const apiKey = useOptionalApiKey();
   const { handleApiError } = useAuth();
+  const queryClient = useQueryClient();
   return useQuery({
     queryKey: ['conversation', agentId],
     enabled: Boolean(apiKey && agentId),
     queryFn: async () => {
       try {
-        return await getConversation(requireApiKey(apiKey), agentId);
+        const server = await getConversation(requireApiKey(apiKey), agentId);
+        const local = queryClient.getQueryData<AgentConversation>(['conversation', agentId]);
+        return {
+          id: server.id,
+          messages: mergePreservingLocalUsers(server.messages, local?.messages ?? []),
+        };
       } catch (error) {
         handleApiError(error);
         throw error;
       }
     },
+    placeholderData: (previous) => previous,
     refetchInterval: live ? 8_000 : false,
     refetchIntervalInBackground: false,
   });
@@ -254,8 +268,14 @@ export function useCreateAgent() {
         throw error;
       }
     },
-    onSuccess: () => {
+    onSuccess: (result, body) => {
       void queryClient.invalidateQueries({ queryKey: ['agents'] });
+      const text = body.prompt?.text?.trim();
+      if (text) {
+        queryClient.setQueryData<AgentConversation>(['conversation', result.agent.id], (current) =>
+          seedUserMessage(current, result.agent.id, text),
+        );
+      }
     },
   });
 }
@@ -274,6 +294,18 @@ export function useCreateFollowUp(agentId: string) {
       } catch (error) {
         handleApiError(error);
         throw error;
+      }
+    },
+    onMutate: async (input) => {
+      const key = ['conversation', agentId] as const;
+      await queryClient.cancelQueries({ queryKey: key });
+      const previous = queryClient.getQueryData<AgentConversation>(key);
+      queryClient.setQueryData<AgentConversation>(key, seedUserMessage(previous, agentId, input.prompt.text));
+      return { previous };
+    },
+    onError: (_error, _input, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(['conversation', agentId], context.previous);
       }
     },
     onSuccess: () => {

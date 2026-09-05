@@ -1,6 +1,6 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeBack } from '../../lib/nav';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -37,7 +37,9 @@ import {
 import { isTerminalRun } from '../../lib/cursor/types';
 import { formatBytes } from '../../lib/format';
 import { colors, spacing } from '../../theme';
+import { isUserMessage, mergePreservingLocalUsers } from '../../features/agents/conversationView';
 import { ArtifactViewer, type ArtifactView } from '../../ui/artifactViewer';
+import { ChatLoading } from '../../ui/chatLoading';
 import { ChatText } from '../../ui/chatText';
 import { UserBubble } from '../../ui/userBubble';
 import { Composer } from '../../ui/composer';
@@ -72,7 +74,7 @@ export default function AgentDetailScreen() {
 
   const [tab, setTab] = useState<'chat' | 'diff'>('chat');
   const [prompt, setPrompt] = useState('');
-  const [pendingUser, setPendingUser] = useState<string | null>(null);
+  const [pendingUsers, setPendingUsers] = useState<{ id: string; text: string }[]>([]);
   const [modelId, setModelId] = useState('');
   const [modelPicker, setModelPicker] = useState(false);
   const [images, setImages] = useState<PickedImage[]>([]);
@@ -85,6 +87,15 @@ export default function AgentDetailScreen() {
   const voice = useVoiceInput(prompt, setPrompt);
 
   const busy = agent?.status === 'ACTIVE' || live || followUp.isPending;
+
+  useEffect(() => {
+    const messages = conversation.data?.messages ?? [];
+    if (!messages.length) return;
+    setPendingUsers((current) =>
+      current.filter((item) => !messages.some((message) => isUserMessage(message) && message.text === item.text)),
+    );
+  }, [conversation.data?.messages]);
+
   const usageText = useMemo(() => {
     if (!usage.data) return '还没拉到用量。';
     const total = usage.data.totalUsage;
@@ -95,15 +106,20 @@ export default function AgentDetailScreen() {
     setError(null);
     const text = prompt.trim();
     if (!text) return;
+    const pendingId = `pending-${Date.now()}`;
+    const keptImages = images;
+    setPendingUsers((current) => [...current, { id: pendingId, text }]);
+    setPrompt('');
+    setImages([]);
     try {
-      setPendingUser(text);
       await followUp.mutateAsync({
-        prompt: { text, images: images.length ? await toPromptImages(images) : undefined },
+        prompt: { text, images: keptImages.length ? await toPromptImages(keptImages) : undefined },
         model: modelId ? { id: modelId } : undefined,
       });
-      setPrompt('');
-      setImages([]);
     } catch (err) {
+      setPendingUsers((current) => current.filter((item) => item.id !== pendingId));
+      setPrompt(text);
+      setImages(keptImages);
       if (isBusyError(err)) {
         setError('这一轮还在写。写完后再发，或点右上角停止。');
         return;
@@ -156,20 +172,31 @@ export default function AgentDetailScreen() {
   if (!agent) {
     return (
       <View style={[styles.padded, { paddingTop: insets.top + 12 }]}>
-        <Text style={styles.meta}>加载中…</Text>
+        <ChatLoading label="加载任务…" />
       </View>
     );
   }
 
-  const messages = conversation.data?.messages ?? [];
-  const pendingVisible =
-    Boolean(pendingUser) && !messages.some((item) => item.type === 'user_message' && item.text === pendingUser);
-  const history = pendingVisible && pendingUser
-    ? [...messages, { id: 'pending-user', type: 'user_message', text: pendingUser }]
-    : messages;
+  const serverMessages = conversation.data?.messages ?? [];
+  const history = mergePreservingLocalUsers(
+    serverMessages,
+    pendingUsers.map((item) => ({ id: item.id, type: 'user_message', text: item.text })),
+  );
+  const hasUser = history.some(isUserMessage);
   const lastHistory = history[history.length - 1];
-  const showLiveAssistant = live || (stream.lines.length > 0 && lastHistory?.type === 'user_message');
-  const chatEmpty = history.length === 0 && stream.lines.length === 0 && !run?.result;
+  const conversationPending = conversation.isPending && !conversation.data && pendingUsers.length === 0;
+  const showChatSpinner = conversationPending && !hasUser;
+  const showLiveAssistant =
+    hasUser && (live || (stream.lines.length > 0 && lastHistory && isUserMessage(lastHistory)));
+  const waitingForAssistant =
+    hasUser &&
+    Boolean(lastHistory && isUserMessage(lastHistory)) &&
+    stream.lines.length === 0 &&
+    (pendingUsers.length > 0 || followUp.isPending || (live && !run?.result));
+  const chatEmpty =
+    !showChatSpinner && history.length === 0 && stream.lines.length === 0 && !run?.result;
+  const showResultFallback =
+    !showLiveAssistant && !history.some((item) => !isUserMessage(item)) && Boolean(run?.result);
   const moreItems = [
     { id: 'web', label: '在浏览器打开', hint: '打开网页上的同一条任务' },
     ...(live && latestRunId ? [{ id: 'stop', label: '停止这一轮', hint: '取消当前正在写的回复' }] : []),
@@ -217,21 +244,25 @@ export default function AgentDetailScreen() {
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
           {tab === 'chat' ? (
             <View style={styles.chat}>
-              {live ? <Text style={styles.live}>正在写…</Text> : null}
+              {showChatSpinner ? <ChatLoading label="加载对话…" /> : null}
+              {!showChatSpinner && live && !waitingForAssistant ? <Text style={styles.live}>正在写…</Text> : null}
               {stream.streamError ? <Text style={styles.meta}>{stream.streamError}</Text> : null}
               {chatEmpty ? (
                 <Text style={styles.meta}>{live ? '等第一段回复。' : '还没有文字结果。'}</Text>
               ) : null}
-              {history.map((item, index) => {
-                const skipTrailingAssistant =
-                  showLiveAssistant && item.type !== 'user_message' && index === history.length - 1;
-                if (skipTrailingAssistant) return null;
-                if (item.type === 'user_message') {
-                  return <UserBubble key={item.id} text={item.text} />;
-                }
-                return <ChatText key={item.id} text={item.text} />;
-              })}
-              {showLiveAssistant
+              {!showChatSpinner
+                ? history.map((item, index) => {
+                    const skipTrailingAssistant =
+                      showLiveAssistant && !isUserMessage(item) && index === history.length - 1;
+                    if (skipTrailingAssistant) return null;
+                    if (isUserMessage(item)) {
+                      return <UserBubble key={item.id} text={item.text} />;
+                    }
+                    return <ChatText key={item.id} text={item.text} />;
+                  })
+                : null}
+              {!showChatSpinner && waitingForAssistant ? <ChatLoading label="正在写…" /> : null}
+              {!showChatSpinner && showLiveAssistant
                 ? stream.lines.map((line, index) => {
                     if (line.kind === 'tool') {
                       return (
@@ -251,7 +282,7 @@ export default function AgentDetailScreen() {
                     return <ChatText key={`a-${index}`} text={line.text} />;
                   })
                 : null}
-              {!showLiveAssistant && history.length === 0 && run?.result ? <ChatText text={run.result} /> : null}
+              {!showChatSpinner && showResultFallback && run?.result ? <ChatText text={run.result} /> : null}
             </View>
           ) : (
             <View style={styles.chat}>

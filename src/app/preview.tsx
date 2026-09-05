@@ -8,6 +8,7 @@ import { WorkspacePanel } from '../features/settings/WorkspacePanel';
 import { useVoiceInput } from '../features/speech/useVoiceInput';
 import { colors, spacing } from '../theme';
 import { AccountMenuPopover, SETTINGS_TITLES, type SettingsPageId } from '../ui/accountMenu';
+import { ChatLoading } from '../ui/chatLoading';
 import { ChatText } from '../ui/chatText';
 import { UserBubble } from '../ui/userBubble';
 import { Composer, RepoSourceBar } from '../ui/composer';
@@ -49,6 +50,9 @@ export default function PreviewScreen() {
   const [tab, setTab] = useState('chat');
   const [homeText, setHomeText] = useState('');
   const [follow, setFollow] = useState('');
+  const [sent, setSent] = useState(['这四件事分别根据什么来判断？对象是不是「会算但收尾选飞」。']);
+  const [replies, setReplies] = useState([DEMO_MARKDOWN]);
+  const [waiting, setWaiting] = useState(false);
   const [model, setModel] = useState('默认模型');
   const [picker, setPicker] = useState<'model' | 'repo' | null>(null);
   const [repo, setRepo] = useState('默认仓库');
@@ -93,8 +97,13 @@ export default function PreviewScreen() {
         <ScrollView contentContainerStyle={styles.chat}>
           {tab === 'chat' ? (
             <View style={{ gap: 14 }}>
-              <UserBubble text="这四件事分别根据什么来判断？对象是不是「会算但收尾选飞」。" />
-              <ChatText text={DEMO_MARKDOWN} />
+              {sent.map((text, index) => (
+                <View key={`${index}-${text}`} style={{ gap: 14 }}>
+                  <UserBubble text={text} />
+                  {replies[index] ? <ChatText text={replies[index]} /> : null}
+                </View>
+              ))}
+              {waiting ? <ChatLoading label="正在写…" /> : null}
             </View>
           ) : (
             <View style={{ gap: 12 }}>
@@ -112,7 +121,18 @@ export default function PreviewScreen() {
             value={follow}
             onChangeText={setFollow}
             placeholder="Add a follow up"
-            onSubmit={() => setFollow('')}
+            onSubmit={() => {
+              const text = follow.trim();
+              if (!text || waiting) return;
+              setSent((current) => [...current, text]);
+              setFollow('');
+              setWaiting(true);
+              setTimeout(() => {
+                setReplies((current) => [...current, '预览回复。黑色气泡会先出现，这段字后到。']);
+                setWaiting(false);
+              }, 700);
+            }}
+            submitting={waiting}
             modelLabel={model === '默认模型' ? '沿用此任务模型' : model}
             onModelPress={() => setPicker('model')}
             listening={followVoice.listening}
@@ -163,7 +183,24 @@ export default function PreviewScreen() {
           value={homeText}
           onChangeText={setHomeText}
           placeholder="让 Agent 构建、修 bug、探索…"
-          onSubmit={() => setPage('detail')}
+          onSubmit={() => {
+            const text = homeText.trim();
+            if (text) {
+              setSent([text]);
+              setReplies([]);
+              setHomeText('');
+              setWaiting(true);
+              setTimeout(() => {
+                setReplies([DEMO_MARKDOWN]);
+                setWaiting(false);
+              }, 700);
+            } else {
+              setSent(['这四件事分别根据什么来判断？对象是不是「会算但收尾选飞」。']);
+              setReplies([DEMO_MARKDOWN]);
+              setWaiting(false);
+            }
+            setPage('detail');
+          }}
           modelLabel={model}
           onModelPress={() => setPicker('model')}
           listening={homeVoice.listening}
