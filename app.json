@@ -48,8 +48,7 @@
         {
           "microphonePermission": "按住说话，转成文字发给 Agent。"
         }
-      ],
-      "expo-video"
+      ]
     ],
     "experiments": {
       "typedRoutes": true
