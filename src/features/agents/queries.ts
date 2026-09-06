@@ -176,7 +176,7 @@ export function useConversation(agentId: string, live: boolean) {
     placeholderData: (previous) => previous,
     refetchInterval: () => {
       if (isNetworkDown()) return Math.max(4_000, networkBackoffMs());
-      return live ? 8_000 : false;
+      return live ? 8_000 : 12_000;
     },
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
@@ -302,7 +302,7 @@ export function useArtifacts(agentId: string, options: { live?: boolean } = {}) 
   return useQuery({
     queryKey: ['artifacts', agentId],
     enabled: Boolean(apiKey && agentId),
-    refetchInterval: options.live ? 8_000 : false,
+    refetchInterval: options.live ? 8_000 : 12_000,
     queryFn: async () => {
       try {
         return await listArtifacts(requireApiKey(apiKey), agentId);

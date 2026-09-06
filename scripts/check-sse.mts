@@ -14,7 +14,7 @@ import {
   noteNetworkOk,
   resetNetworkState,
 } from '../src/lib/cursor/reconnect.ts';
-import { isLocalUserId, lastAssistantAfter, lastUserIndex, mergeConversation, mergePreservingLocalUsers, seedUserMessage } from '../src/features/agents/conversationView.ts';
+import { isLocalUserId, lastAssistantAfter, lastUserIndex, mergeConversation, mergePreservingLocalUsers, seedUserMessage, timelineUserIndex } from '../src/features/agents/conversationView.ts';
 import { eventPhase, prepareBurst, replayDelayMs } from '../src/lib/cursor/ssePace.ts';
 import { defaultCatalogModelId, resolveStoredModelId } from '../src/features/agents/models.ts';
 import { toolCaption } from '../src/features/agents/toolCaption.ts';
@@ -182,6 +182,28 @@ if (lastUserIndex([{ id: '1', type: 'user_message', text: 'hi' }, { id: '2', typ
 }
 if (lastAssistantAfter([{ id: '1', type: 'user_message', text: 'hi' }, { id: '2', type: 'assistant_message', text: 'yo' }], 0) !== 1) {
   throw new Error('lastAssistantAfter failed');
+}
+const remoteThread = [
+  { id: '1', type: 'user_message', text: '上一轮' },
+  { id: '2', type: 'assistant_message', text: '旧回复' },
+  { id: '3', type: 'user_message', text: '其他端刚发的' },
+];
+if (timelineUserIndex(remoteThread, { activeTurn: false }) !== 0) {
+  throw new Error('remote unanswered user should keep the timeline on the previous turn');
+}
+if (timelineUserIndex(remoteThread, { activeTurn: true }) !== 2) {
+  throw new Error('active turn should pin the timeline to the latest user');
+}
+if (
+  timelineUserIndex(
+    [
+      { id: '1', type: 'user_message', text: '上一轮' },
+      { id: '2', type: 'assistant_message', text: '旧回复' },
+    ],
+    { activeTurn: true, localSend: false },
+  ) !== -1
+) {
+  throw new Error('live remote run should not park an empty timeline on a finished turn');
 }
 
 const kept = mergeConversation(

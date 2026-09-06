@@ -1,7 +1,8 @@
 import { StyleSheet, Text, View } from 'react-native';
 import type { TranscriptLine } from '../lib/cursor/sseApply';
+import type { Artifact } from '../lib/cursor/types';
 import { colors } from '../theme';
-import { ChatText } from './chatText';
+import { ChatBody } from './chatBody';
 import { ThinkingBlock } from './thinkingBlock';
 import { ToolRow } from './toolRow';
 
@@ -10,11 +11,17 @@ export function TurnTimeline({
   keptThinking,
   live,
   thinkingDone,
+  agentId,
+  artifacts,
+  onOpenMedia,
 }: {
   lines: TranscriptLine[];
   keptThinking?: { text: string; durationMs?: number } | null;
   live?: boolean;
   thinkingDone?: boolean;
+  agentId?: string;
+  artifacts?: Artifact[];
+  onOpenMedia?: (path: string) => void;
 }) {
   const streamThinking = lines.find((line) => line.kind === 'thinking');
   const lastAssistantIndex = [...lines].reverse().findIndex((line) => line.kind === 'assistant' && line.text);
@@ -31,7 +38,7 @@ export function TurnTimeline({
           defaultOpen={!thinkingDone}
         />
       ) : null}
-      {renderTimeline(lines, live, thinkingDone, lastAssistantAt)}
+      {renderTimeline(lines, live, thinkingDone, lastAssistantAt, agentId, artifacts, onOpenMedia)}
     </>
   );
 }
@@ -41,6 +48,9 @@ function renderTimeline(
   live?: boolean,
   thinkingDone?: boolean,
   lastAssistantAt = -1,
+  agentId?: string,
+  artifacts?: Artifact[],
+  onOpenMedia?: (path: string) => void,
 ) {
   const nodes = [];
   let index = 0;
@@ -89,7 +99,13 @@ function renderTimeline(
             <Text style={styles.caret}>▍</Text>
           </Text>
         ) : (
-          <ChatText key={`a:${index}`} text={line.text} />
+          <ChatBody
+            key={`a:${index}`}
+            text={line.text}
+            agentId={agentId}
+            artifacts={artifacts}
+            onOpen={onOpenMedia}
+          />
         ),
       );
     }

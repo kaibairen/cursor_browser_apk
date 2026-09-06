@@ -3,11 +3,14 @@ import {
   artifactMediaKind,
   artifactMentionedInText,
   assignChatMedia,
+  inlineArtifactPaths,
   isImageArtifactPath,
   isOpenableArtifactPath,
   isTextArtifactPath,
   isVideoArtifactPath,
+  matchArtifactPath,
   mediaKindFromUrl,
+  normalizeMediaSrc,
   splitMarkdownMedia,
 } from '../src/lib/cursor/artifactPath.ts';
 import type { Artifact, ConversationMessage } from '../src/lib/cursor/types.ts';
@@ -43,6 +46,33 @@ if (pieces[1]?.type !== 'media' || pieces[1].kind !== 'image' || pieces[1].url !
 }
 if (pieces[3]?.type !== 'media' || pieces[3].kind !== 'video') throw new Error('video markdown');
 
+const html = splitMarkdownMedia(
+  '图按论文来画。<img src="/opt/cursor/artifacts/assets/experiment-architecture.png" alt="实验架构" />后面是说明。<video src="artifacts/user-bubble-immediate-send.mp4"></video>',
+);
+if (html.filter((piece) => piece.type === 'media').length !== 2) {
+  throw new Error(`html media pieces: ${JSON.stringify(html)}`);
+}
+if (html[1]?.type !== 'media' || html[1].kind !== 'image' || !html[1].url.includes('experiment-architecture.png')) {
+  throw new Error('html img should become an image piece');
+}
+if (html[3]?.type !== 'media' || html[3].kind !== 'video') {
+  throw new Error('html video should become a video piece');
+}
+if (normalizeMediaSrc('/opt/cursor/artifacts/assets/experiment-architecture.png') !== 'artifacts/assets/experiment-architecture.png') {
+  throw new Error('normalize official artifact src');
+}
+const matched = matchArtifactPath('/opt/cursor/artifacts/assets/experiment-architecture.png', [
+  { path: 'artifacts/assets/experiment-architecture.png' },
+]);
+if (matched?.path !== 'artifacts/assets/experiment-architecture.png') {
+  throw new Error('match official img src to artifact');
+}
+if (!inlineArtifactPaths('<img src="/opt/cursor/artifacts/assets/experiment-architecture.png" />', [
+  { path: 'artifacts/assets/experiment-architecture.png' },
+]).has('artifacts/assets/experiment-architecture.png')) {
+  throw new Error('inline artifact path from html img');
+}
+
 const items: Artifact[] = [
   { path: 'artifacts/preview-chat.png', sizeBytes: 100, updatedAt: '2026-01-01T00:10:00.000Z' },
   { path: 'artifacts/user-bubble-immediate-send.mp4', sizeBytes: 200, updatedAt: '2026-01-01T01:20:00.000Z' },
@@ -77,6 +107,22 @@ const undated = assignChatMedia(
 );
 if (undated.byUserIndex[2]?.[0]?.path !== 'artifacts/late.mp4') {
   throw new Error('undated leftover video should stay on the latest turn, not a detached footer');
+}
+
+const waiting = assignChatMedia(
+  [{ path: 'artifacts/old.mp4', sizeBytes: 3, updatedAt: '' }],
+  [
+    { id: 'u1', type: 'user_message', text: '先看截图' },
+    { id: 'a1', type: 'assistant_message', text: '见图 preview-chat.png' },
+    { id: 'u2', type: 'user_message', text: '其他端刚发的' },
+  ],
+  [],
+);
+if (waiting.byUserIndex[2]?.length) {
+  throw new Error('unanswered remote user must not steal leftover media');
+}
+if (waiting.byUserIndex[0]?.[0]?.path !== 'artifacts/old.mp4') {
+  throw new Error('leftover media should stay on the last completed turn');
 }
 
 console.log('artifact helpers ok');

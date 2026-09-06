@@ -4,7 +4,8 @@ const TEXT_ARTIFACT =
   /\.(md|markdown|txt|json|csv|tsv|ya?ml|xml|html|css|js|jsx|ts|tsx|py|go|rs|java|kt|swift|sh|log|diff|patch|toml|ini|rst)$/i;
 const IMAGE_ARTIFACT = /\.(png|jpe?g|gif|webp|bmp|svg)$/i;
 const VIDEO_ARTIFACT = /\.(mp4|webm|mov|m4v)$/i;
-const MARKDOWN_MEDIA = /!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g;
+const MARKDOWN_OR_HTML_MEDIA =
+  /!\[([^\]]*)\]\(([^)\s]+)\)|<img\b[^>]*\bsrc=["']([^"']+)["'][^>]*>|<video\b[^>]*\bsrc=["']([^"']+)["'][^>]*>/gi;
 
 export type MarkdownPiece =
   | { type: 'text'; text: string }
@@ -96,16 +97,16 @@ export function assignChatMedia<
   }
 
   const leftover = media.filter((item) => unused.has(item.path));
-  const lastUser = userIndices[userIndices.length - 1];
-  if (leftover.length && lastUser != null) {
-    addAt(byUserIndex, lastUser, leftover);
+  const completedUser = lastCompletedUserIndex(messages);
+  if (leftover.length && completedUser >= 0) {
+    addAt(byUserIndex, completedUser, leftover);
   }
 
   return {
     byUserIndex: sortAssigned(byUserIndex),
     byIndex: sortAssigned(byIndex),
     leftover,
-    orphan: lastUser == null ? leftover : [],
+    orphan: completedUser < 0 ? leftover : [],
   };
 }
 
@@ -114,6 +115,45 @@ export function ownerUserIndex(messages: { type: string }[], index: number): num
     if (/user/i.test(messages[cursor]?.type ?? '')) return cursor;
   }
   return -1;
+}
+
+export function lastCompletedUserIndex(messages: { type: string }[]): number {
+  const users = messages.flatMap((message, index) => (/user/i.test(message.type) ? [index] : []));
+  for (let i = users.length - 1; i >= 0; i -= 1) {
+    const userIndex = users[i]!;
+    const nextUser = users[i + 1] ?? messages.length;
+    if (messages.slice(userIndex + 1, nextUser).some((message) => !/user/i.test(message.type))) {
+      return userIndex;
+    }
+  }
+  return -1;
+}
+
+export function normalizeMediaSrc(src: string): string {
+  const path = urlPath(src.trim());
+  const artifact = /(?:^|\/)(?:opt\/cursor\/)?artifacts\/(.+)$/i.exec(path);
+  if (artifact?.[1]) return `artifacts/${artifact[1]}`;
+  return path.replace(/^\//, '');
+}
+
+export function matchArtifactPath<T extends { path: string }>(src: string, artifacts: T[]): T | undefined {
+  const normalized = normalizeMediaSrc(src);
+  const name = artifactFileName(normalized);
+  return (
+    artifacts.find((item) => item.path === normalized) ??
+    artifacts.find((item) => item.path.endsWith(`/${normalized}`) || normalized.endsWith(item.path)) ??
+    artifacts.find((item) => artifactFileName(item.path) === name)
+  );
+}
+
+export function inlineArtifactPaths<T extends { path: string }>(text: string, artifacts: T[]): Set<string> {
+  const paths = new Set<string>();
+  for (const piece of splitMarkdownMedia(text)) {
+    if (piece.type !== 'media') continue;
+    const match = matchArtifactPath(piece.url, artifacts);
+    if (match) paths.add(match.path);
+  }
+  return paths;
 }
 
 function runIndexForTime(time: number, runs: RunStamp[]): number {
@@ -149,25 +189,34 @@ function sortAssigned<T extends { path: string; updatedAt?: string }>(
 
 export function splitMarkdownMedia(text: string): MarkdownPiece[] {
   const pieces: MarkdownPiece[] = [];
-  const re = new RegExp(MARKDOWN_MEDIA.source, 'g');
+  const re = new RegExp(MARKDOWN_OR_HTML_MEDIA.source, 'gi');
   let last = 0;
   let match: RegExpExecArray | null;
   while ((match = re.exec(text))) {
     if (match.index > last) {
       pieces.push({ type: 'text', text: text.slice(last, match.index) });
     }
-    pieces.push({
-      type: 'media',
-      kind: mediaKindFromUrl(match[2]!),
-      alt: match[1] ?? '',
-      url: match[2]!,
-    });
+    const url = match[2] || match[3] || match[4] || '';
+    const alt = match[1] || htmlAttr(match[0], 'alt') || artifactFileName(url);
+    if (url) {
+      pieces.push({
+        type: 'media',
+        kind: mediaKindFromUrl(url),
+        alt,
+        url,
+      });
+    }
     last = match.index + match[0].length;
   }
   if (last < text.length) {
     pieces.push({ type: 'text', text: text.slice(last) });
   }
   return pieces.length ? pieces : [{ type: 'text', text }];
+}
+
+function htmlAttr(tag: string, name: string): string {
+  const match = new RegExp(`\\b${name}=["']([^"']*)["']`, 'i').exec(tag);
+  return match?.[1] ?? '';
 }
 
 function urlPath(url: string): string {

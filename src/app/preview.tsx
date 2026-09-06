@@ -8,6 +8,7 @@ import { WorkspacePanel } from '../features/settings/WorkspacePanel';
 import { useVoiceInput } from '../features/speech/useVoiceInput';
 import { colors, spacing } from '../theme';
 import { AccountMenuPopover, SETTINGS_TITLES, type SettingsPageId } from '../ui/accountMenu';
+import { ChatBody } from '../ui/chatBody';
 import { ChatText } from '../ui/chatText';
 import { MediaBlock } from '../ui/mediaBlock';
 import { ThinkingBlock } from '../ui/thinkingBlock';
@@ -48,6 +49,8 @@ const DEMO_MARKDOWN = `## 3. 基于什么指标，对应什么情况
 
 - **保留** 现有的检索入口
 - 删掉 \`conversation_search\`
+
+<img src="https://picsum.photos/seed/inline-chat/960/540" alt="inline-from-html.png" />
 `;
 
 const DEMO_THINKING = '用户在问判断标准。先对上「会算 / 答对 / 错配」三列，再解释「会算但收尾选飞」对应哪一行。';
@@ -179,7 +182,7 @@ export default function PreviewScreen() {
                           defaultOpen={false}
                         />
                       ) : null}
-                      {item.reply ? <ChatText text={item.reply} /> : null}
+                      {item.reply ? <ChatBody text={item.reply} /> : null}
                     </>
                   )}
                 </View>

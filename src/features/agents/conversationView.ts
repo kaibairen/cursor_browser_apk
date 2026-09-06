@@ -18,6 +18,26 @@ export function lastAssistantAfter(messages: ConversationMessage[], userIndex: n
   return -1;
 }
 
+export function timelineUserIndex(
+  messages: ConversationMessage[],
+  options: { activeTurn: boolean; localSend?: boolean } | boolean,
+): number {
+  const activeTurn = typeof options === 'boolean' ? options : options.activeTurn;
+  const localSend = typeof options === 'boolean' ? activeTurn : Boolean(options.localSend);
+  const latest = lastUserIndex(messages);
+  if (latest < 0) return -1;
+  const unanswered = lastAssistantAfter(messages, latest) < 0;
+  if (unanswered) {
+    return activeTurn ? latest : lastUserIndex(messages.slice(0, latest));
+  }
+  if (activeTurn && !localSend) return -1;
+  return latest;
+}
+
+export function messageKey(item: ConversationMessage, index: number): string {
+  return item.id || `${item.type}:${index}:${item.text.slice(0, 24)}`;
+}
+
 export function assistantCount(messages: ConversationMessage[]): number {
   return messages.reduce((count, item) => count + (isUserMessage(item) ? 0 : 1), 0);
 }

@@ -14,18 +14,30 @@ type MdBlock =
   | { type: 'p'; text: string }
   | { type: 'media'; kind: ArtifactMediaKind; alt: string; url: string };
 
-export function ChatText({ text }: { text: string }) {
+export function ChatText({
+  text,
+  renderMedia,
+}: {
+  text: string;
+  renderMedia?: (piece: { kind: ArtifactMediaKind; alt: string; url: string }) => ReactNode;
+}) {
   const blocks = parseBlocks(text);
   return (
     <View style={styles.stack}>
       {blocks.map((block, index) => (
-        <RenderBlock key={`${block.type}-${index}`} block={block} />
+        <RenderBlock key={`${block.type}-${index}`} block={block} renderMedia={renderMedia} />
       ))}
     </View>
   );
 }
 
-function RenderBlock({ block }: { block: MdBlock }) {
+function RenderBlock({
+  block,
+  renderMedia,
+}: {
+  block: MdBlock;
+  renderMedia?: (piece: { kind: ArtifactMediaKind; alt: string; url: string }) => ReactNode;
+}) {
   switch (block.type) {
     case 'heading':
       return (
@@ -63,9 +75,12 @@ function RenderBlock({ block }: { block: MdBlock }) {
     case 'p':
       return <Text style={styles.body}>{renderInline(block.text)}</Text>;
     case 'media':
-      if (block.kind === 'video') {
+      if (renderMedia) {
+        return <>{renderMedia({ kind: block.kind, alt: block.alt, url: block.url })}</>;
+      }
+      if (block.kind === 'video' || !/^https?:\/\//i.test(block.url)) {
         return (
-          <Text style={styles.link} onPress={() => void Linking.openURL(block.url)}>
+          <Text style={styles.link} onPress={() => /^https?:\/\//i.test(block.url) && void Linking.openURL(block.url)}>
             {block.alt || block.url}
           </Text>
         );
