@@ -37,8 +37,15 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
-    "test:sse": "node --experimental-strip-types --no-warnings scripts/check-sse.mts && node scripts/check-proxy.js && node --experimental-strip-types --no-warnings scripts/check-artifacts.mts",
+    "test:sse": "node --experimental-strip-types --no-warnings scripts/check-sse.mts && node scripts/check-proxy.js && node --experimental-strip-types --no-warnings scripts/check-artifacts.mts && node --experimental-strip-types --no-warnings scripts/check-android-config.mts",
     "test:iat": "npx --yes tsx scripts/check-iat.mts"
   },
-  "private": true
+  "private": true,
+  "expo": {
+    "autolinking": {
+      "android": {
+        "exclude": ["expo-video"]
+      }
+    }
+  }
 }
