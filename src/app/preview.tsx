@@ -187,6 +187,12 @@ export default function PreviewScreen() {
                   )}
                 </View>
               ))}
+              {thread.length === 1 && !turn.waiting ? (
+                <>
+                  <UserBubble text="其他设备刚发的追问" />
+                  <TurnTimeline lines={[]} keptThinking={{ text: '' }} live thinkingDone={false} />
+                </>
+              ) : null}
               {turn.waiting || (!thread[thread.length - 1]?.reply && (turn.thinking || turn.reply)) ? (
                 <>
                   <ThinkingBlock

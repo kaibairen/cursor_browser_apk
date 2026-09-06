@@ -342,7 +342,10 @@ export default function AgentDetailScreen() {
   const activeTurn = hasLocalSend || followUp.isPending || (live && !runDone);
   const streamForLatestTurn = attachLatestStream(unansweredLatest, activeTurn);
   const timelineIndex = timelineUserIndex(history, { activeTurn, localSend: hasLocalSend || followUp.isPending });
-  const waitingOnLatest = unansweredLatest && !streamForLatestTurn;
+  const waitingOnLatest =
+    unansweredLatest &&
+    (!streamForLatestTurn ||
+      (!stream.lines.length && !streamAssistant && !thinkingBusy));
   const waitingThinking = waitingOnLatest ? { text: '' } : keptThinking;
   const artifactItems = artifacts.data?.items ?? [];
   const chatEmpty =
