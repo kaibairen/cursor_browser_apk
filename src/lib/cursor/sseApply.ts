@@ -20,6 +20,7 @@ export type StreamApplyResult = {
   runStatus?: RunStatus;
   resultText?: string;
   durationMs?: number;
+  userText?: string;
 };
 
 export function ensureThinkingLine(lines: TranscriptLine[]): TranscriptLine[] {
@@ -52,7 +53,13 @@ export function applySseEvent(
   }
 
   if (event.event === 'interaction_update') {
-    return { lines: applyInteractionUpdate(event.data, lines, ctx), lastEventId, terminal: false };
+    const userText = readAppendedUserText(event.data);
+    return {
+      lines: applyInteractionUpdate(event.data, lines, ctx),
+      lastEventId,
+      terminal: false,
+      userText: userText || undefined,
+    };
   }
 
   if (event.event === 'tool_call') {
@@ -113,12 +120,44 @@ export function applySseEvents(
 ): StreamApplyResult {
   let current = lines;
   let result: StreamApplyResult = { lines: current, lastEventId: ctx.lastEventId, terminal: false };
+  let userText: string | undefined;
   for (const event of events) {
     result = applySseEvent(event, current, ctx);
     current = result.lines;
+    if (result.userText) userText = result.userText;
     if (result.retry || result.terminal) break;
   }
-  return result;
+  return { ...result, userText };
+}
+
+export function readAppendedUserText(raw: string): string {
+  const payload = unwrapUpdate(raw);
+  if (!payload) return '';
+  const type = String(payload.type ?? '');
+  if (!/user[-_]?message[-_]?appended/i.test(type)) return '';
+  const nested =
+    asRecord(payload.userMessage) ??
+    asRecord(payload.user_message) ??
+    asRecord(payload.message) ??
+    asRecord(payload.prompt);
+  return firstTrimmedText(nested?.text, nested?.content, payload.text, payload.content);
+}
+
+function firstTrimmedText(...values: unknown[]): string {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) return value.trim();
+    if (Array.isArray(value)) {
+      const joined = value
+        .map((part) => {
+          if (typeof part === 'string') return part;
+          const rec = asRecord(part);
+          return typeof rec?.text === 'string' ? rec.text : '';
+        })
+        .join('');
+      if (joined.trim()) return joined.trim();
+    }
+  }
+  return '';
 }
 
 function readTextPayload(raw: string): string {

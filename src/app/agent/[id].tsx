@@ -111,6 +111,18 @@ export default function AgentDetailScreen() {
   const voice = useVoiceInput(prompt, setPrompt);
   const scrollRef = useRef<ScrollView>(null);
   const historyHold = useRef<ConversationMessage[]>([]);
+  const seenRunId = useRef<string | undefined>(undefined);
+
+  useEffect(() => {
+    if (!latestRunId) return;
+    if (seenRunId.current === latestRunId) return;
+    const first = seenRunId.current == null;
+    seenRunId.current = latestRunId;
+    if (first) return;
+    setKeptThinking(null);
+    thinkingStarted.current = Date.now();
+    void queryClient.invalidateQueries({ queryKey: ['conversation', agentId] });
+  }, [agentId, latestRunId, queryClient]);
 
   useEffect(() => {
     if (conversation.isFetching) return;
@@ -131,6 +143,7 @@ export default function AgentDetailScreen() {
     modelReady.current = false;
     setModelId('');
     historyHold.current = [];
+    seenRunId.current = undefined;
   }, [agentId]);
 
   useEffect(() => {
@@ -279,10 +292,13 @@ export default function AgentDetailScreen() {
   }
 
   const serverMessages = conversation.data?.messages ?? [];
-  const incoming = mergeConversation(
-    serverMessages,
-    pendingUsers.map((item) => ({ id: item.id, type: 'user_message', text: item.text })),
-  );
+  const remoteText = (stream.remoteUser || run?.prompt?.text || '').trim();
+  const incoming = mergeConversation(serverMessages, [
+    ...pendingUsers.map((item) => ({ id: item.id, type: 'user_message', text: item.text })),
+    ...(remoteText
+      ? [{ id: `remote-user:${latestRunId ?? 'live'}`, type: 'user_message', text: remoteText }]
+      : []),
+  ]);
   const history = mergeConversation(incoming, historyHold.current);
   if (
     history.length > historyHold.current.length ||
@@ -476,6 +492,7 @@ export default function AgentDetailScreen() {
                 : null}
               {(!showChatSpinner &&
                 timelineIndex < 0 &&
+                latestUserIndex < 0 &&
                 (activeTurn || stream.lines.length > 0 || Boolean(keptThinking))) ||
               (showChatSpinner && (stream.lines.length > 0 || Boolean(keptThinking))) ? (
                 <>

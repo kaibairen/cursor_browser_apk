@@ -88,6 +88,7 @@ export interface Run {
   additions?: number;
   deletions?: number;
   model?: { id: string };
+  prompt?: PromptInput;
 }
 
 export interface Paginated<T> {

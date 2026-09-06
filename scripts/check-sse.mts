@@ -6,7 +6,7 @@ import {
   isNetworkError,
   isRetryableError,
 } from '../src/lib/cursor/errors.ts';
-import { applySseEvent, applySseEvents, ensureThinkingLine, type TranscriptLine } from '../src/lib/cursor/sseApply.ts';
+import { applySseEvent, applySseEvents, ensureThinkingLine, readAppendedUserText, type TranscriptLine } from '../src/lib/cursor/sseApply.ts';
 import {
   isNetworkDown,
   networkBackoffMs,
@@ -204,6 +204,54 @@ if (
   ) !== -1
 ) {
   throw new Error('live remote run should not park an empty timeline on a finished turn');
+}
+if (
+  readAppendedUserText(
+    '{"type":"user-message-appended","userMessage":{"type":"user_message","text":"帮我合入main"}}',
+  ) !== '帮我合入main'
+) {
+  throw new Error('should read user-message-appended text');
+}
+if (
+  readAppendedUserText(
+    '{"update":{"type":"user-message-appended","user_message":{"content":[{"text":"其他端发的"}]}}}',
+  ) !== '其他端发的'
+) {
+  throw new Error('should read nested appended user content');
+}
+const appended = applySseEvents(
+  [
+    {
+      event: 'interaction_update',
+      data: '{"type":"user-message-appended","userMessage":{"text":"从手机发的"}}',
+    },
+    { event: 'thinking', data: '{"text":"先看问题"}' },
+  ],
+  [],
+  { simplified: { assistant: false, thinking: false } },
+);
+if (appended.userText !== '从手机发的') {
+  throw new Error(`stream should surface remote user text: ${appended.userText}`);
+}
+const remoteSeeded = seedUserMessage(
+  {
+    id: 'bc-1',
+    messages: [
+      { id: '1', type: 'user_message', text: '上一轮' },
+      { id: '2', type: 'assistant_message', text: '旧回复' },
+    ],
+  },
+  'bc-1',
+  '从手机发的',
+);
+if (!remoteSeeded.messages.some((item) => item.type === 'user_message' && item.text === '从手机发的')) {
+  throw new Error('seedUserMessage should append the remote bubble');
+}
+if (
+  timelineUserIndex(remoteSeeded.messages, { activeTurn: true, localSend: false }) !==
+  remoteSeeded.messages.length - 1
+) {
+  throw new Error('remote user bubble should own the live timeline');
 }
 
 const kept = mergeConversation(

@@ -6,8 +6,9 @@ import { prepareBurst, replayDelayMs } from '../../lib/cursor/ssePace';
 import type { SseEvent } from '../../lib/cursor/sseParse';
 import { CursorApiError, isNetworkError } from '../../lib/cursor/errors';
 import { isNetworkDown, networkBackoffMs, noteNetworkFail } from '../../lib/cursor/reconnect';
-import { isTerminalRun, type Run, type RunStatus } from '../../lib/cursor/types';
+import { isTerminalRun, type AgentConversation, type Run, type RunStatus } from '../../lib/cursor/types';
 import { useAuth, useOptionalApiKey } from '../auth/AuthContext';
+import { seedUserMessage } from './conversationView';
 
 export type { TranscriptLine };
 
@@ -28,6 +29,7 @@ export function useRunStream(agentId: string, runId: string | undefined, runStat
   const [revealing, setRevealing] = useState(false);
   const [retryNonce, setRetryNonce] = useState(0);
   const [catchUpDone, setCatchUpDone] = useState(false);
+  const [remoteUser, setRemoteUser] = useState<string | null>(null);
   const linesRef = useRef<TranscriptLine[]>([]);
   const lastEventId = useRef<string | undefined>(undefined);
   const simplified = useRef({ assistant: false, thinking: false });
@@ -68,6 +70,7 @@ export function useRunStream(agentId: string, runId: string | undefined, runStat
     setRevealing(false);
     setRetryNonce(0);
     setCatchUpDone(Boolean(runId && queryClient.getQueryData(['transcript-catchup', agentId, runId])));
+    setRemoteUser(null);
     lastEventId.current = undefined;
     simplified.current = {
       assistant: stored.some((line) => line.kind === 'assistant'),
@@ -155,11 +158,21 @@ export function useRunStream(agentId: string, runId: string | undefined, runStat
       };
     }
 
+    function rememberRemoteUser(text?: string) {
+      const trimmed = text?.trim();
+      if (!trimmed) return;
+      setRemoteUser((current) => current || trimmed);
+      queryClient.setQueryData<AgentConversation>(['conversation', agentId], (current) =>
+        seedUserMessage(current, agentId, trimmed),
+      );
+    }
+
     function commit(result: ReturnType<typeof applySseEvent>) {
       lastEventId.current = result.lastEventId;
       pendingRetry.current = Boolean(result.retry);
       linesRef.current = result.lines;
       setLines(result.lines);
+      rememberRemoteUser(result.userText);
       return result;
     }
 
@@ -271,6 +284,12 @@ export function useRunStream(agentId: string, runId: string | undefined, runStat
       simplified.current = ctx.simplified;
       linesRef.current = result.lines;
       setLines(result.lines);
+      if (result.userText) {
+        setRemoteUser((current) => current || result.userText || null);
+        queryClient.setQueryData<AgentConversation>(['conversation', agentId], (current) =>
+          seedUserMessage(current, agentId, result.userText!),
+        );
+      }
     };
 
     const finishCatchUp = () => {
@@ -305,6 +324,7 @@ export function useRunStream(agentId: string, runId: string | undefined, runStat
 
   return {
     lines,
+    remoteUser,
     streamError,
     usePolling,
     live: live || revealing,

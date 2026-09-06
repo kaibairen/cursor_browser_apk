@@ -56,7 +56,12 @@ export function mergeConversation(
 }
 
 export function isLocalUserId(id: string): boolean {
-  return id.startsWith('local-user:') || id.startsWith('local-user-') || id.startsWith('pending-');
+  return (
+    id.startsWith('local-user:') ||
+    id.startsWith('local-user-') ||
+    id.startsWith('pending-') ||
+    id.startsWith('remote-user:')
+  );
 }
 
 export function countUserTexts(

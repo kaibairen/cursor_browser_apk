@@ -176,7 +176,7 @@ export function useConversation(agentId: string, live: boolean) {
     placeholderData: (previous) => previous,
     refetchInterval: () => {
       if (isNetworkDown()) return Math.max(4_000, networkBackoffMs());
-      return live ? 8_000 : 12_000;
+      return live ? 2_000 : 12_000;
     },
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
