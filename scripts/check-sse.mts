@@ -14,7 +14,7 @@ import {
   noteNetworkOk,
   resetNetworkState,
 } from '../src/lib/cursor/reconnect.ts';
-import { isLocalUserId, lastAssistantAfter, lastUserIndex, mergeConversation, mergePreservingLocalUsers, seedUserMessage, timelineUserIndex } from '../src/features/agents/conversationView.ts';
+import { attachLatestStream, isLocalUserId, lastAssistantAfter, lastUserIndex, mergeConversation, mergePreservingLocalUsers, seedUserMessage, timelineUserIndex } from '../src/features/agents/conversationView.ts';
 import { eventPhase, prepareBurst, replayDelayMs } from '../src/lib/cursor/ssePace.ts';
 import { defaultCatalogModelId, resolveStoredModelId } from '../src/features/agents/models.ts';
 import { toolCaption } from '../src/features/agents/toolCaption.ts';
@@ -188,11 +188,31 @@ const remoteThread = [
   { id: '2', type: 'assistant_message', text: '旧回复' },
   { id: '3', type: 'user_message', text: '其他端刚发的' },
 ];
-if (timelineUserIndex(remoteThread, { activeTurn: false }) !== 0) {
-  throw new Error('remote unanswered user should keep the timeline on the previous turn');
+if (timelineUserIndex(remoteThread, { activeTurn: false }) !== 2) {
+  throw new Error('unanswered user should own the waiting timeline');
 }
 if (timelineUserIndex(remoteThread, { activeTurn: true }) !== 2) {
   throw new Error('active turn should pin the timeline to the latest user');
+}
+if (attachLatestStream(true, false)) {
+  throw new Error('waiting remote bubble must not reuse the previous run stream');
+}
+if (!attachLatestStream(true, true)) {
+  throw new Error('live unanswered turn should attach the current run stream');
+}
+if (!attachLatestStream(false, false)) {
+  throw new Error('finished answered turn should keep the latest run stream');
+}
+if (
+  timelineUserIndex(
+    [
+      { id: '1', type: 'user_message', text: '上一轮' },
+      { id: '2', type: 'assistant_message', text: '旧回复' },
+    ],
+    { activeTurn: false },
+  ) !== 0
+) {
+  throw new Error('finished answered thread should keep the timeline on the last user');
 }
 if (
   timelineUserIndex(

@@ -41,6 +41,7 @@ import { isTerminalRun, type ConversationMessage } from '../../lib/cursor/types'
 import { formatBytes } from '../../lib/format';
 import { colors, spacing } from '../../theme';
 import {
+  attachLatestStream,
   countUserTexts,
   isUserMessage,
   lastAssistantAfter,
@@ -112,6 +113,13 @@ export default function AgentDetailScreen() {
   const scrollRef = useRef<ScrollView>(null);
   const historyHold = useRef<ConversationMessage[]>([]);
   const seenRunId = useRef<string | undefined>(undefined);
+
+  useEffect(() => {
+    if (!agentId || live) return;
+    const last = conversation.data?.messages?.[conversation.data.messages.length - 1];
+    if (!last || !isUserMessage(last)) return;
+    void queryClient.invalidateQueries({ queryKey: ['agent', agentId] });
+  }, [agentId, live, conversation.dataUpdatedAt, queryClient]);
 
   useEffect(() => {
     if (!latestRunId) return;
@@ -330,8 +338,12 @@ export default function AgentDetailScreen() {
     followUp.isPending;
   const latestUserIndex = lastUserIndex(history);
   const latestAssistantIndex = lastAssistantAfter(history, latestUserIndex);
+  const unansweredLatest = latestUserIndex >= 0 && latestAssistantIndex < 0;
   const activeTurn = hasLocalSend || followUp.isPending || (live && !runDone);
+  const streamForLatestTurn = attachLatestStream(unansweredLatest, activeTurn);
   const timelineIndex = timelineUserIndex(history, { activeTurn, localSend: hasLocalSend || followUp.isPending });
+  const waitingOnLatest = unansweredLatest && !streamForLatestTurn;
+  const waitingThinking = waitingOnLatest ? { text: '' } : keptThinking;
   const artifactItems = artifacts.data?.items ?? [];
   const chatEmpty =
     !showChatSpinner &&
@@ -449,10 +461,10 @@ export default function AgentDetailScreen() {
                           <UserBubble text={item.text} images={pendingById.get(item.id)?.images} />
                           {index === timelineIndex ? (
                             <TurnTimeline
-                              lines={stream.lines}
-                              keptThinking={keptThinking}
-                              live={stream.live && !runDone}
-                              thinkingDone={thinkingDone && !thinkingBusy}
+                              lines={streamForLatestTurn ? stream.lines : []}
+                              keptThinking={waitingThinking}
+                              live={(stream.live && !runDone) || waitingOnLatest}
+                              thinkingDone={waitingOnLatest ? false : thinkingDone && !thinkingBusy}
                               agentId={agentId}
                               artifacts={artifactItems}
                               onOpenMedia={(path) => void openArtifact(path)}

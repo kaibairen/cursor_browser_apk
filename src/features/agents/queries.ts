@@ -115,7 +115,13 @@ export function useAgent(id: string) {
       }
     },
     placeholderData: () => findListedAgent(queryClient, id) as Agent | undefined,
-    refetchInterval: () => (isNetworkDown() ? Math.max(4_000, networkBackoffMs()) : 12_000),
+    refetchInterval: () => {
+      if (isNetworkDown()) return Math.max(4_000, networkBackoffMs());
+      const conversation = queryClient.getQueryData<AgentConversation>(['conversation', id]);
+      const last = conversation?.messages[conversation.messages.length - 1];
+      if (last && /user/i.test(last.type)) return 2_000;
+      return 12_000;
+    },
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
   });
@@ -174,9 +180,13 @@ export function useConversation(agentId: string, live: boolean) {
       }
     },
     placeholderData: (previous) => previous,
-    refetchInterval: () => {
+    refetchInterval: (query) => {
       if (isNetworkDown()) return Math.max(4_000, networkBackoffMs());
-      return live ? 2_000 : 12_000;
+      if (live) return 2_000;
+      const messages = query.state.data?.messages ?? [];
+      const last = messages[messages.length - 1];
+      if (last && /user/i.test(last.type)) return 2_000;
+      return 12_000;
     },
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,

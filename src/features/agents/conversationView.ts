@@ -27,11 +27,16 @@ export function timelineUserIndex(
   const latest = lastUserIndex(messages);
   if (latest < 0) return -1;
   const unanswered = lastAssistantAfter(messages, latest) < 0;
-  if (unanswered) {
-    return activeTurn ? latest : lastUserIndex(messages.slice(0, latest));
-  }
+  // A new user bubble (this device or another) must own the waiting
+  // 「思考中」 row. Do not park the timeline on the previous finished turn.
+  if (unanswered) return latest;
   if (activeTurn && !localSend) return -1;
   return latest;
+}
+
+export function attachLatestStream(unansweredLatest: boolean, activeTurn: boolean): boolean {
+  // Until the new run is live, keep the previous run's tools/thinking off the new bubble.
+  return !unansweredLatest || activeTurn;
 }
 
 export function messageKey(item: ConversationMessage, index: number): string {
