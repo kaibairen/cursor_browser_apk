@@ -40,8 +40,7 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "允许选择图片作为任务附件。",
-          "microphonePermission": false
+          "photosPermission": "允许选择图片作为任务附件。"
         }
       ],
       [
