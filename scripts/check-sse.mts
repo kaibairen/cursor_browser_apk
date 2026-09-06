@@ -306,4 +306,22 @@ if (!dumped.terminal || dumped.lines.find((line) => line.kind === 'assistant')?.
   throw new Error(`finished dump should apply in one shot: ${JSON.stringify(dumped.lines)}`);
 }
 
+const dumpedTools = applySseEvents(
+  [
+    { event: 'thinking', data: '{"text":"先读文件"}' },
+    {
+      event: 'tool_call',
+      data: '{"callId":"c1","name":"read_file","status":"completed","args":{"path":"src/ui/turnTimeline.tsx"}}',
+    },
+    { event: 'tool_call', data: '{"callId":"c2","name":"tool","status":"completed","args":{"path":"src/lib/cursor/sseApply.ts"}}' },
+    { event: 'assistant', data: '{"text":"工具行在思考后面"}' },
+    { event: 'result', data: '{"status":"FINISHED","text":"工具行在思考后面"}' },
+  ],
+  [],
+  { simplified: { assistant: false, thinking: false } },
+);
+if (dumpedTools.lines.filter((line) => line.kind === 'tool').length !== 2) {
+  throw new Error(`finished dump should keep tool rows: ${JSON.stringify(dumpedTools.lines)}`);
+}
+
 console.log('sse parse + apply ok');

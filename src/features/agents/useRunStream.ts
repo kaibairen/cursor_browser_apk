@@ -27,6 +27,7 @@ export function useRunStream(agentId: string, runId: string | undefined, runStat
   const [ended, setEnded] = useState(false);
   const [revealing, setRevealing] = useState(false);
   const [retryNonce, setRetryNonce] = useState(0);
+  const [catchUpDone, setCatchUpDone] = useState(false);
   const linesRef = useRef<TranscriptLine[]>([]);
   const lastEventId = useRef<string | undefined>(undefined);
   const simplified = useRef({ assistant: false, thinking: false });
@@ -46,6 +47,14 @@ export function useRunStream(agentId: string, runId: string | undefined, runStat
   const canConnect = Boolean(
     runId && apiKey && !usePolling && !ended && (runStatus === 'CREATING' || runStatus === 'RUNNING'),
   );
+  const needsCatchUp = Boolean(
+    runId &&
+      apiKey &&
+      runStatus &&
+      isTerminalRun(runStatus) &&
+      !catchUpDone &&
+      !lines.some((line) => line.kind === 'tool'),
+  );
 
   useEffect(() => {
     const stored = runId
@@ -58,6 +67,7 @@ export function useRunStream(agentId: string, runId: string | undefined, runStat
     setEnded(false);
     setRevealing(false);
     setRetryNonce(0);
+    setCatchUpDone(Boolean(runId && queryClient.getQueryData(['transcript-catchup', agentId, runId])));
     lastEventId.current = undefined;
     simplified.current = {
       assistant: stored.some((line) => line.kind === 'assistant'),
@@ -244,6 +254,50 @@ export function useRunStream(agentId: string, runId: string | undefined, runStat
       }, wait);
     }
   }, [apiKey, agentId, runId, canConnect, retryNonce, handleApiError, queryClient]);
+
+  useEffect(() => {
+    if (!needsCatchUp || !runId || !apiKey) return;
+    let cancelled = false;
+    const ctx = {
+      lastEventId: lastEventId.current,
+      simplified: { ...simplified.current },
+      pendingRetry: false,
+    };
+
+    const applyDump = (events: SseEvent[]) => {
+      if (cancelled || !events.length) return;
+      const result = applySseEvents(events, linesRef.current, ctx);
+      lastEventId.current = result.lastEventId;
+      simplified.current = ctx.simplified;
+      linesRef.current = result.lines;
+      setLines(result.lines);
+    };
+
+    const finishCatchUp = () => {
+      if (cancelled) return;
+      setCatchUpDone(true);
+      setEnded(true);
+      queryClient.setQueryData(['transcript-catchup', agentId, runId], true);
+    };
+
+    const stop = openRunStream(apiKey, agentId, runId, {
+      onEvent: (event) => applyDump([event]),
+      onEvents: applyDump,
+      onClose: finishCatchUp,
+      onError: (error) => {
+        finishCatchUp();
+        const code = error instanceof CursorApiError ? error.code : undefined;
+        if (code === 'stream_expired' || code === 'stream_unavailable') return;
+        if (isNetworkError(error)) return;
+        handleApiError(error);
+      },
+    });
+
+    return () => {
+      cancelled = true;
+      stop();
+    };
+  }, [needsCatchUp, apiKey, agentId, runId, handleApiError, queryClient]);
 
   useEffect(() => () => {
     if (retryTimer.current) clearTimeout(retryTimer.current);

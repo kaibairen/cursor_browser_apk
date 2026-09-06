@@ -12,6 +12,7 @@ export type StreamHandlers = {
   onEvents?: (events: SseEvent[]) => void;
   onError?: (error: Error) => void;
   onOpen?: () => void;
+  onClose?: () => void;
 };
 
 function emitEvents(handlers: StreamHandlers, events: SseEvent[]): void {
@@ -90,6 +91,7 @@ function openFetchStream(
         const consumed = consumeSseBuffer(`${buffer}\n\n`);
         emitEvents(handlers, consumed.events);
       }
+      handlers.onClose?.();
     } catch (error) {
       if (controller.signal.aborted) return;
       noteNetworkFail();
@@ -153,7 +155,9 @@ function openXhrStream(
     flush();
     if (xhr.status >= 400) {
       handlers.onError?.(failStatus(xhr.status));
+      return;
     }
+    handlers.onClose?.();
   };
 
   xhr.send();
