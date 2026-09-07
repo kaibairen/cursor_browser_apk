@@ -2,9 +2,9 @@ import 'react-native-gesture-handler';
 import { focusManager, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useState } from 'react';
-import type { ReactNode } from 'react';
-import { ActivityIndicator, AppState, Platform, View } from 'react-native';
+import { Component, useEffect, useState } from 'react';
+import type { ErrorInfo, ReactNode } from 'react';
+import { ActivityIndicator, AppState, Platform, Text, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider, useAuth } from '../features/auth/AuthContext';
 import { isNetworkError } from '../lib/cursor/errors';
@@ -19,6 +19,27 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+class RootErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+
+  static getDerivedStateFromError(): { failed: boolean } {
+    return { failed: true };
+  }
+
+  componentDidCatch(_error: Error, _info: ErrorInfo): void {}
+
+  render(): ReactNode {
+    if (this.state.failed) {
+      return (
+        <View style={{ flex: 1, backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+          <Text style={{ color: colors.text, fontSize: 16, textAlign: 'center' }}>页面出错了。把应用划掉再打开。</Text>
+        </View>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 function AuthGate({ children }: { children: ReactNode }) {
   const { ready, signedIn } = useAuth();
@@ -74,22 +95,24 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <QueryClientProvider client={client}>
         <AuthProvider>
-          <AuthGate>
-            <StatusBar style="dark" />
-            <Stack
-              screenOptions={{
-                headerShown: false,
-                contentStyle: { backgroundColor: colors.bg },
-              }}
-            >
-              <Stack.Screen name="index" />
-              <Stack.Screen name="setup" />
-              <Stack.Screen name="preview" />
-              <Stack.Screen name="home" />
-              <Stack.Screen name="settings" />
-              <Stack.Screen name="agent/[id]" />
-            </Stack>
-          </AuthGate>
+          <RootErrorBoundary>
+            <AuthGate>
+              <StatusBar style="dark" />
+              <Stack
+                screenOptions={{
+                  headerShown: false,
+                  contentStyle: { backgroundColor: colors.bg },
+                }}
+              >
+                <Stack.Screen name="index" />
+                <Stack.Screen name="setup" />
+                <Stack.Screen name="preview" />
+                <Stack.Screen name="home" />
+                <Stack.Screen name="settings" />
+                <Stack.Screen name="agent/[id]" />
+              </Stack>
+            </AuthGate>
+          </RootErrorBoundary>
         </AuthProvider>
       </QueryClientProvider>
     </SafeAreaProvider>

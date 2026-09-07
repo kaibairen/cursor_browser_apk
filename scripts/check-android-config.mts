@@ -62,11 +62,16 @@ if (!mediaBlock.includes("import('./inlineVideo')")) {
   throw new Error('chat video must load the player only when a video block renders');
 }
 const androidPlayer = readFileSync(join(root, 'src/ui/inlineVideo.android.tsx'), 'utf8');
-if (/from ['"]expo-video['"]/.test(androidPlayer)) {
-  throw new Error('Android inline video must not import expo-video');
+if (/from ['"]expo-video['"]/.test(androidPlayer) || /from ['"]expo-av['"]/.test(androidPlayer)) {
+  throw new Error('Android inline video must not mount expo-video or expo-av Video');
 }
-if (!androidPlayer.includes("from 'expo-av'")) {
-  throw new Error('Android inline video should use expo-av, which already shipped in the last working APK');
+if (!androidPlayer.includes('openExternal')) {
+  throw new Error('Android should open the video URL instead of a native player');
+}
+
+const metro = readFileSync(join(root, 'metro.config.js'), 'utf8');
+if (!metro.includes("moduleName === 'expo-video'") || !metro.includes("platform === 'android'")) {
+  throw new Error('Metro must stub expo-video on Android so the JS bundle cannot load it');
 }
 
 const pcm = readFileSync(join(root, 'src/features/speech/pcm.ts'), 'utf8');
@@ -79,7 +84,7 @@ if (!linked.includes('pcm-recorder')) {
   throw new Error('pcm-recorder must stay autolinked in the Android APK');
 }
 if (!linked.includes('expo-av')) {
-  throw new Error('expo-av must stay autolinked so Android can play chat video');
+  throw new Error('expo-av must stay autolinked; the last working APK already shipped it');
 }
 if (linked.includes('expo-video')) {
   throw new Error('expo-video must not autolink on Android; its native OnCreate crashes the APK at launch');

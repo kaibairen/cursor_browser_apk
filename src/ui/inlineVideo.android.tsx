@@ -1,18 +1,14 @@
-import { ResizeMode, Video } from 'expo-av';
-import { StyleSheet } from 'react-native';
-import { radius } from '../theme';
+import { Pressable, StyleSheet, Text } from 'react-native';
+import { colors, radius } from '../theme';
+import { openExternal } from './openUrl';
 
-// Android must not native-link expo-video: VideoModule.OnCreate / SimpleCache crashes at process start.
+// Do not mount expo-video or expo-av Video on Android. Native video init has crashed this APK.
 
 export function InlineVideo({ uri }: { uri: string }) {
   return (
-    <Video
-      source={{ uri }}
-      style={styles.video}
-      useNativeControls
-      resizeMode={ResizeMode.CONTAIN}
-      shouldPlay={false}
-    />
+    <Pressable accessibilityRole="button" onPress={() => void openExternal(uri)} style={styles.video}>
+      <Text style={styles.label}>▶ 打开视频</Text>
+    </Pressable>
   );
 }
 
@@ -22,6 +18,8 @@ const styles = StyleSheet.create({
     aspectRatio: 16 / 9,
     borderRadius: radius.md,
     backgroundColor: '#111',
-    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
+  label: { color: colors.card, fontSize: 16, fontWeight: '600' },
 });
