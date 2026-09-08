@@ -157,5 +157,9 @@ const writer = readFileSync(join(root, 'modules/startup-log/android/src/main/jav
 if (!writer.includes('fd.sync') || !writer.includes('startup.last') || !writer.includes('VideoModule')) {
   throw new Error('StartupLog must fsync, keep last line, and record whether expo-video classes exist');
 }
+const about = readFileSync(join(root, 'src/features/settings/AboutPanel.tsx'), 'utf8');
+if (about.includes('Share.share')) {
+  throw new Error('AboutPanel must not call Share.share on web; use shareStartupLog');
+}
 
 console.log('android config ok');

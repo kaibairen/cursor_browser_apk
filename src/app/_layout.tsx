@@ -4,13 +4,13 @@ import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Component, useEffect, useState } from 'react';
 import type { ErrorInfo, ReactNode } from 'react';
-import { ActivityIndicator, AppState, Platform, Pressable, Share, Text, View } from 'react-native';
+import { ActivityIndicator, AppState, Platform, Pressable, Text, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider, useAuth } from '../features/auth/AuthContext';
 import { isNetworkError } from '../lib/cursor/errors';
 import { isNetworkDown } from '../lib/cursor/reconnect';
 import { colors } from '../theme';
-import { hookJsErrors, logStartup, readStartupLog } from '../lib/startupLog';
+import { hookJsErrors, logStartup, readStartupLog, shareStartupLog } from '../lib/startupLog';
 
 hookJsErrors();
 logStartup('js-layout-import');
@@ -47,10 +47,10 @@ class RootErrorBoundary extends Component<{ children: ReactNode }, { failed: boo
           </Text>
           <Pressable
             onPress={() => {
-              void Share.share({ message: payload || this.state.detail });
+              void shareStartupLog(payload || this.state.detail);
             }}
           >
-            <Text style={{ color: colors.link, fontSize: 15 }}>分享启动日志</Text>
+            <Text style={{ color: colors.link, fontSize: 15 }}>{Platform.OS === 'web' ? '复制启动日志' : '分享启动日志'}</Text>
           </Pressable>
         </View>
       );

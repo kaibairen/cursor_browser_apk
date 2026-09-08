@@ -1,4 +1,4 @@
-import { Platform } from 'react-native';
+import { Platform, Share } from 'react-native';
 
 let hooked = false;
 
@@ -19,7 +19,7 @@ function nativeModule(): StartupLogNative | null {
 }
 
 export function logStartup(stage: string): void {
-  console.error(`[AgentsStartup] ${stage} os=${Platform.OS}`);
+  console.log(`[AgentsStartup] ${stage} os=${Platform.OS}`);
   if (Platform.OS === 'android') {
     try {
       nativeModule()?.write?.(stage);
@@ -34,6 +34,19 @@ export function readStartupLog(): string {
     return nativeModule()?.read?.() ?? '';
   } catch {
     return '';
+  }
+}
+
+export async function shareStartupLog(message: string): Promise<void> {
+  const text = message.trim() || '没有启动日志';
+  if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  try {
+    await Share.share({ message: text });
+  } catch {
+    // Keep the on-screen text selectable if the system share sheet is missing.
   }
 }
 

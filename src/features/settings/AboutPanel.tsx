@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Pressable, Share, Text } from 'react-native';
-import { readStartupLog } from '../../lib/startupLog';
+import { Platform, Pressable, Text } from 'react-native';
+import { readStartupLog, shareStartupLog } from '../../lib/startupLog';
 import { settingsStyles as styles } from '../../ui/settingsChrome';
 
 export function AboutPanel() {
   const [log, setLog] = useState('读取中…');
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     const next = readStartupLog().trim();
@@ -22,10 +23,12 @@ export function AboutPanel() {
       </Text>
       <Pressable
         onPress={() => {
-          void Share.share({ message: log });
+          void shareStartupLog(log).then(() => {
+            if (Platform.OS === 'web') setCopied(true);
+          });
         }}
       >
-        <Text style={styles.ok}>分享启动日志</Text>
+        <Text style={styles.ok}>{copied ? '已复制' : Platform.OS === 'web' ? '复制启动日志' : '分享启动日志'}</Text>
       </Pressable>
     </>
   );
