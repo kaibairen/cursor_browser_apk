@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { getMe } from '../../lib/cursor/client';
 import { CursorAuthError, isNetworkError } from '../../lib/cursor/errors';
 import type { Me } from '../../lib/cursor/types';
+import { logStartup } from '../../lib/startupLog';
 import { clearApiKey, readApiKey, writeApiKey } from './secureKey';
 
 type AuthStatus = 'loading' | 'signedOut' | 'signedIn';
@@ -60,6 +61,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let cancelled = false;
     (async () => {
       const stored = await readApiKey();
+      logStartup(`js-auth stored=${Boolean(stored)}`);
       if (!stored) {
         if (!cancelled) setStatus('signedOut');
         return;

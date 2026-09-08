@@ -10,6 +10,10 @@ import { AuthProvider, useAuth } from '../features/auth/AuthContext';
 import { isNetworkError } from '../lib/cursor/errors';
 import { isNetworkDown } from '../lib/cursor/reconnect';
 import { colors } from '../theme';
+import { hookJsErrors, logStartup } from '../lib/startupLog';
+
+hookJsErrors();
+logStartup('js-layout-import');
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -27,7 +31,9 @@ class RootErrorBoundary extends Component<{ children: ReactNode }, { failed: boo
     return { failed: true };
   }
 
-  componentDidCatch(_error: Error, _info: ErrorInfo): void {}
+  componentDidCatch(error: Error, _info: ErrorInfo): void {
+    logStartup(`js-boundary ${error.message}`);
+  }
 
   render(): ReactNode {
     if (this.state.failed) {
@@ -74,6 +80,9 @@ function AuthGate({ children }: { children: ReactNode }) {
 
 export default function RootLayout() {
   const [client] = useState(() => queryClient);
+  useEffect(() => {
+    logStartup('js-layout-mount');
+  }, []);
 
   useEffect(() => {
     if (Platform.OS !== 'web' || typeof document === 'undefined') return;

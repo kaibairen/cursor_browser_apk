@@ -83,6 +83,9 @@ const linked = androidAutolinkedPackages();
 if (!linked.includes('pcm-recorder')) {
   throw new Error('pcm-recorder must stay autolinked in the Android APK');
 }
+if (!linked.includes('startup-log')) {
+  throw new Error('startup-log must autolink on Android so launch breadcrumbs hit logcat');
+}
 if (!linked.includes('expo-av')) {
   throw new Error('expo-av must stay autolinked; the last working APK already shipped it');
 }
@@ -95,6 +98,14 @@ const manifest = JSON.stringify(
 );
 if (manifest.includes('FullscreenPlayerActivity') || manifest.includes('expo.modules.video')) {
   throw new Error('Android manifest must not register ExpoVideo / FullscreenPlayerActivity');
+}
+
+const startupManifest = readFileSync(join(root, 'modules/startup-log/android/src/main/AndroidManifest.xml'), 'utf8');
+if (!startupManifest.includes('StartupLogProvider') || !startupManifest.includes('startuplog')) {
+  throw new Error('startup-log must register a ContentProvider so breadcrumbs run before JS');
+}
+if (!JSON.stringify(app.expo?.plugins ?? []).includes('withStartupLog')) {
+  throw new Error('app.json must apply the startup log MainApplication plugin');
 }
 
 console.log('android config ok');
