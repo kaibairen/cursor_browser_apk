@@ -1,7 +1,10 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+const require = createRequire(import.meta.url);
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -31,8 +34,16 @@ function usesPermissions(config: Record<string, unknown>): Array<Record<string, 
 }
 
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as {
+  main?: string;
   expo?: { autolinking?: { android?: { exclude?: string[] } } };
 };
+if (pkg.main !== 'index.js') {
+  throw new Error('package.json main must be index.js so the first JS breadcrumb runs before expo-router');
+}
+const entry = readFileSync(join(root, 'index.js'), 'utf8');
+if (!entry.includes("require('expo-router/entry')") || !entry.includes('js-bundle-start')) {
+  throw new Error('index.js must log js-bundle-start then load expo-router/entry');
+}
 if (!pkg.expo?.autolinking?.android?.exclude?.includes('expo-video')) {
   throw new Error('package.json must exclude expo-video from Android autolinking');
 }
@@ -106,6 +117,45 @@ if (!startupManifest.includes('StartupLogProvider') || !startupManifest.includes
 }
 if (!JSON.stringify(app.expo?.plugins ?? []).includes('withStartupLog')) {
   throw new Error('app.json must apply the startup log MainApplication plugin');
+}
+
+const plugin = require('../plugins/withStartupLog.cjs') as {
+  applyMainApplication: (src: string) => string;
+  applyMainActivity: (src: string) => string;
+};
+const application = plugin.applyMainApplication(`
+class MainApplication : Application(), ReactApplication {
+  override fun onCreate() {
+    super.onCreate()
+    loadReactNative(this)
+    ApplicationLifecycleDispatcher.onApplicationCreate(this)
+  }
+}
+`);
+if (
+  !application.includes('MainApplication.attachBaseContext') ||
+  !application.includes('MainApplication.onCreate begin') ||
+  !application.includes('MainApplication.loadReactNative begin') ||
+  !application.includes('MainApplication.loadReactNative ok') ||
+  !application.includes('MainApplication.lifecycle ok')
+) {
+  throw new Error('startup plugin must wrap attachBaseContext, onCreate, and loadReactNative');
+}
+const activity = plugin.applyMainActivity(`
+class MainActivity : ReactActivity() {
+  override fun onCreate(savedInstanceState: Bundle?) {
+    setTheme(R.style.AppTheme);
+    super.onCreate(null)
+  }
+}
+`);
+if (!activity.includes('MainActivity.onCreate begin') || !activity.includes('MainActivity.super.onCreate ok')) {
+  throw new Error('startup plugin must log MainActivity onCreate before and after super.onCreate');
+}
+
+const writer = readFileSync(join(root, 'modules/startup-log/android/src/main/java/com/kaibairen/startup/StartupLog.kt'), 'utf8');
+if (!writer.includes('fd.sync') || !writer.includes('startup.last') || !writer.includes('VideoModule')) {
+  throw new Error('StartupLog must fsync, keep last line, and record whether expo-video classes exist');
 }
 
 console.log('android config ok');

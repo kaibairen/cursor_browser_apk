@@ -4,19 +4,29 @@ import android.content.ContentProvider
 import android.content.ContentValues
 import android.database.Cursor
 import android.net.Uri
+import android.util.Log
 
 class StartupLogProvider : ContentProvider() {
   override fun onCreate(): Boolean {
-    val previous = Thread.getDefaultUncaughtExceptionHandler()
-    Thread.setDefaultUncaughtExceptionHandler { thread, error ->
-      StartupLog.write(
-        context,
-        "uncaught thread=${thread.name} ${error.javaClass.name} ${error.message} ${error.stackTraceToString().take(1200)}",
-      )
-      previous?.uncaughtException(thread, error)
+    return try {
+      val previous = Thread.getDefaultUncaughtExceptionHandler()
+      Thread.setDefaultUncaughtExceptionHandler { thread, error ->
+        try {
+          StartupLog.write(
+            context,
+            "uncaught thread=${thread.name} ${error.javaClass.name} ${error.message} ${error.stackTraceToString().take(1200)}",
+          )
+        } catch (writeError: Throwable) {
+          Log.e(StartupLog.TAG, "uncaught-write-failed ${writeError.message}")
+        }
+        previous?.uncaughtException(thread, error)
+      }
+      StartupLog.write(context, "provider.onCreate")
+      true
+    } catch (error: Throwable) {
+      Log.e(StartupLog.TAG, "provider.onCreate fail ${error.javaClass.name} ${error.message}")
+      true
     }
-    StartupLog.write(context, "provider.onCreate")
-    return true
   }
 
   override fun query(uri: Uri, projection: Array<out String>?, selection: String?, selectionArgs: Array<out String>?, sortOrder: String?): Cursor? = null

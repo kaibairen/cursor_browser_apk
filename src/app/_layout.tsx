@@ -4,13 +4,13 @@ import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Component, useEffect, useState } from 'react';
 import type { ErrorInfo, ReactNode } from 'react';
-import { ActivityIndicator, AppState, Platform, Text, View } from 'react-native';
+import { ActivityIndicator, AppState, Platform, Pressable, Share, Text, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider, useAuth } from '../features/auth/AuthContext';
 import { isNetworkError } from '../lib/cursor/errors';
 import { isNetworkDown } from '../lib/cursor/reconnect';
 import { colors } from '../theme';
-import { hookJsErrors, logStartup } from '../lib/startupLog';
+import { hookJsErrors, logStartup, readStartupLog } from '../lib/startupLog';
 
 hookJsErrors();
 logStartup('js-layout-import');
@@ -24,22 +24,34 @@ const queryClient = new QueryClient({
   },
 });
 
-class RootErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
-  state = { failed: false };
+class RootErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean; detail: string; log: string }> {
+  state = { failed: false, detail: '', log: '' };
 
-  static getDerivedStateFromError(): { failed: boolean } {
-    return { failed: true };
+  static getDerivedStateFromError(error: Error): { failed: boolean; detail: string } {
+    return { failed: true, detail: error.message };
   }
 
   componentDidCatch(error: Error, _info: ErrorInfo): void {
     logStartup(`js-boundary ${error.message}`);
+    this.setState({ log: readStartupLog() });
   }
 
   render(): ReactNode {
     if (this.state.failed) {
+      const payload = [`js-boundary ${this.state.detail}`, this.state.log].filter(Boolean).join('\n');
       return (
-        <View style={{ flex: 1, backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-          <Text style={{ color: colors.text, fontSize: 16, textAlign: 'center' }}>页面出错了。把应用划掉再打开。</Text>
+        <View style={{ flex: 1, backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center', padding: 24, gap: 12 }}>
+          <Text style={{ color: colors.text, fontSize: 16, textAlign: 'center' }}>页面出错了。把下面日志发给我，再把应用划掉重开。</Text>
+          <Text selectable style={{ color: colors.muted, fontSize: 12, textAlign: 'left', alignSelf: 'stretch' }}>
+            {payload || this.state.detail}
+          </Text>
+          <Pressable
+            onPress={() => {
+              void Share.share({ message: payload || this.state.detail });
+            }}
+          >
+            <Text style={{ color: colors.link, fontSize: 15 }}>分享启动日志</Text>
+          </Pressable>
         </View>
       );
     }
