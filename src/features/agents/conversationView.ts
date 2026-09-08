@@ -39,6 +39,14 @@ export function attachLatestStream(unansweredLatest: boolean, activeTurn: boolea
   return !unansweredLatest || activeTurn;
 }
 
+export function waitingThinkingOpen(options: {
+  unansweredLatest: boolean;
+  runActive: boolean;
+  hasStreamWork?: boolean;
+}): boolean {
+  return options.unansweredLatest && options.runActive && !options.hasStreamWork;
+}
+
 export function messageKey(item: ConversationMessage, index: number): string {
   return item.id || `${item.type}:${index}:${item.text.slice(0, 24)}`;
 }

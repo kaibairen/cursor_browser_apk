@@ -1,11 +1,15 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '../features/auth/AuthContext';
+import { logStartup } from '../lib/startupLog';
 import { colors, spacing } from '../theme';
 import { Button, Field } from '../ui/primitives';
 
 export default function SetupScreen() {
   const { signIn, error: bootError } = useAuth();
+  useEffect(() => {
+    logStartup('js-setup-mount');
+  }, []);
   const [key, setKey] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);

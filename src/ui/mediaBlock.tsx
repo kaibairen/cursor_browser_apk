@@ -1,8 +1,9 @@
-import { Component, type ErrorInfo, type ReactNode } from 'react';
-import { useVideoPlayer, VideoView } from 'expo-video';
+import { Component, lazy, Suspense, type ErrorInfo, type ReactNode } from 'react';
 import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { ArtifactMediaKind } from '../lib/cursor/artifactPath';
 import { colors, radius } from '../theme';
+
+const InlineVideo = lazy(() => import('./inlineVideo').then((mod) => ({ default: mod.InlineVideo })));
 
 export function MediaBlock({
   kind,
@@ -23,7 +24,9 @@ export function MediaBlock({
         </Pressable>
       ) : (
         <MediaErrorBoundary>
-          <InlineVideo key={uri} uri={uri} />
+          <Suspense fallback={<MediaPlaceholder label="加载视频…" />}>
+            <InlineVideo key={uri} uri={uri} />
+          </Suspense>
         </MediaErrorBoundary>
       )}
       {caption ? <Text style={styles.caption}>{caption}</Text> : null}
@@ -59,23 +62,6 @@ class MediaErrorBoundary extends Component<{ children: ReactNode }, { failed: bo
   }
 }
 
-function InlineVideo({ uri }: { uri: string }) {
-  const player = useVideoPlayer(uri, (next) => {
-    next.loop = false;
-  });
-
-  return (
-    <VideoView
-      style={styles.video}
-      player={player}
-      nativeControls
-      contentFit="contain"
-      playsInline
-      fullscreenOptions={{ enable: true }}
-    />
-  );
-}
-
 const styles = StyleSheet.create({
   wrap: { gap: 6 },
   image: {
@@ -84,13 +70,6 @@ const styles = StyleSheet.create({
     maxHeight: 420,
     borderRadius: radius.md,
     backgroundColor: colors.chip,
-  },
-  video: {
-    width: '100%',
-    aspectRatio: 16 / 9,
-    borderRadius: radius.md,
-    backgroundColor: '#111',
-    overflow: 'hidden',
   },
   placeholder: {
     width: '100%',

@@ -49,6 +49,7 @@ import {
   mergeConversation,
   messageKey,
   timelineUserIndex,
+  waitingThinkingOpen,
 } from '../../features/agents/conversationView';
 import { ArtifactViewer, type ArtifactView } from '../../ui/artifactViewer';
 import { ChatLoading } from '../../ui/chatLoading';
@@ -342,10 +343,13 @@ export default function AgentDetailScreen() {
   const activeTurn = hasLocalSend || followUp.isPending || (live && !runDone);
   const streamForLatestTurn = attachLatestStream(unansweredLatest, activeTurn);
   const timelineIndex = timelineUserIndex(history, { activeTurn, localSend: hasLocalSend || followUp.isPending });
-  const waitingOnLatest =
-    unansweredLatest &&
-    (!streamForLatestTurn ||
-      (!stream.lines.length && !streamAssistant && !thinkingBusy));
+  const runActive =
+    hasLocalSend || followUp.isPending || (live && !runDone) || agent?.status === 'ACTIVE';
+  const waitingOnLatest = waitingThinkingOpen({
+    unansweredLatest,
+    runActive,
+    hasStreamWork: Boolean(streamAssistant) || thinkingBusy,
+  });
   const waitingThinking = waitingOnLatest ? { text: '' } : keptThinking;
   const artifactItems = artifacts.data?.items ?? [];
   const chatEmpty =

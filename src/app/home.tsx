@@ -34,6 +34,7 @@ import { useAuth } from '../features/auth/AuthContext';
 import { accountName } from '../features/settings/identity';
 import type { ConversationMode, CreateAgentRequest } from '../lib/cursor/types';
 import { formatRelative } from '../lib/format';
+import { logStartup } from '../lib/startupLog';
 import { usePrefs } from '../storage/usePrefs';
 import { colors, spacing } from '../theme';
 import { useVoiceInput } from '../features/speech/useVoiceInput';
@@ -58,7 +59,7 @@ export default function AgentsHomeScreen() {
   const prefetchDetail = usePrefetchAgentDetail();
   const list = useAgentList({ includeArchived: false, enabled: focused });
   const items = useMemo(
-    () => (list.data?.pages.flatMap((page) => page.items) ?? []).filter((item) => item?.id),
+    () => (list.data?.pages.flatMap((page) => page.items) ?? []).filter((item) => Boolean(item?.id)),
     [list.data],
   );
 
@@ -74,6 +75,10 @@ export default function AgentsHomeScreen() {
   const [menuOpen, setMenuOpen] = useState(false);
   const voice = useVoiceInput(text, setText);
   const projects = useHydrateAgentProjects(items);
+
+  useEffect(() => {
+    logStartup('js-home-mount');
+  }, []);
 
   useEffect(() => {
     if (focused) void reload();
@@ -266,7 +271,7 @@ export default function AgentsHomeScreen() {
                   deletions={projects[item.id]?.deletions}
                 />
               </View>
-              <Text style={styles.time}>{formatRelative(item.updatedAt)}</Text>
+              <Text style={styles.time}>{formatRelative(item?.updatedAt)}</Text>
             </Pressable>
           )}
           ListEmptyComponent={

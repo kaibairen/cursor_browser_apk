@@ -14,7 +14,7 @@ import {
   noteNetworkOk,
   resetNetworkState,
 } from '../src/lib/cursor/reconnect.ts';
-import { attachLatestStream, isLocalUserId, lastAssistantAfter, lastUserIndex, mergeConversation, mergePreservingLocalUsers, seedUserMessage, timelineUserIndex } from '../src/features/agents/conversationView.ts';
+import { attachLatestStream, isLocalUserId, lastAssistantAfter, lastUserIndex, mergeConversation, mergePreservingLocalUsers, seedUserMessage, timelineUserIndex, waitingThinkingOpen } from '../src/features/agents/conversationView.ts';
 import { eventPhase, prepareBurst, replayDelayMs } from '../src/lib/cursor/ssePace.ts';
 import { defaultCatalogModelId, resolveStoredModelId } from '../src/features/agents/models.ts';
 import { toolCaption } from '../src/features/agents/toolCaption.ts';
@@ -202,6 +202,15 @@ if (!attachLatestStream(true, true)) {
 }
 if (!attachLatestStream(false, false)) {
   throw new Error('finished answered turn should keep the latest run stream');
+}
+if (waitingThinkingOpen({ unansweredLatest: true, runActive: false })) {
+  throw new Error('finished unanswered bubble must not stay on 思考中');
+}
+if (!waitingThinkingOpen({ unansweredLatest: true, runActive: true })) {
+  throw new Error('active unanswered bubble should show 思考中');
+}
+if (waitingThinkingOpen({ unansweredLatest: true, runActive: true, hasStreamWork: true })) {
+  throw new Error('stream thinking should replace the empty waiting row');
 }
 if (
   timelineUserIndex(

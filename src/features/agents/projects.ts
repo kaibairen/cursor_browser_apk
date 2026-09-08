@@ -51,8 +51,9 @@ export function agentProjectEntry(
   };
 }
 
-export function listStamp(item: Pick<AgentListItem, 'latestRunId' | 'updatedAt' | 'status'>): string {
-  return `${item.latestRunId ?? ''}:${item.updatedAt}:${item.status}`;
+export function listStamp(item?: Pick<AgentListItem, 'latestRunId' | 'updatedAt' | 'status'> | null): string {
+  if (!item) return '';
+  return `${item.latestRunId ?? ''}:${item.updatedAt ?? ''}:${item.status ?? ''}`;
 }
 
 function numberField(value: unknown): number | undefined {
@@ -181,6 +182,7 @@ export function useHydrateAgentProjects(items: AgentListItem[]): Record<string, 
       const stored = prefs.agentProjects ?? {};
       setCache((current) => ({ ...stored, ...current }));
       const pending = items.slice(0, 24).filter((item) => {
+        if (!item?.id) return false;
         const stamp = listStamp(item);
         if (requested.current.has(`${item.id}:${stamp}`)) return false;
         const cached = stored[item.id] ?? cache[item.id];

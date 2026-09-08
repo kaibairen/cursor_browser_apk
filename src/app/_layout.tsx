@@ -2,14 +2,18 @@ import 'react-native-gesture-handler';
 import { focusManager, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useState } from 'react';
-import type { ReactNode } from 'react';
-import { ActivityIndicator, AppState, Platform, View } from 'react-native';
+import { Component, useEffect, useState } from 'react';
+import type { ErrorInfo, ReactNode } from 'react';
+import { ActivityIndicator, AppState, Platform, Pressable, Text, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider, useAuth } from '../features/auth/AuthContext';
 import { isNetworkError } from '../lib/cursor/errors';
 import { isNetworkDown } from '../lib/cursor/reconnect';
 import { colors } from '../theme';
+import { hookJsErrors, logStartup, readStartupLog, shareStartupLog } from '../lib/startupLog';
+
+hookJsErrors();
+logStartup('js-layout-import');
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -19,6 +23,41 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+class RootErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean; detail: string; log: string }> {
+  state = { failed: false, detail: '', log: '' };
+
+  static getDerivedStateFromError(error: Error): { failed: boolean; detail: string } {
+    return { failed: true, detail: `${error.message}\n${error.stack ?? ''}` };
+  }
+
+  componentDidCatch(error: Error, _info: ErrorInfo): void {
+    logStartup(`js-boundary ${error.message}`);
+    this.setState({ log: readStartupLog() });
+  }
+
+  render(): ReactNode {
+    if (this.state.failed) {
+      const payload = [`页面崩溃（请截图发给我）`, this.state.detail, this.state.log].filter(Boolean).join('\n\n');
+      return (
+        <View style={{ flex: 1, backgroundColor: '#ffffff', padding: 20, paddingTop: 48, gap: 16 }}>
+          <Text style={{ color: '#111111', fontSize: 22, fontWeight: '700' }}>页面崩溃（请截图发给我）</Text>
+          <Text selectable style={{ color: '#111111', fontSize: 15, lineHeight: 22 }}>
+            {payload}
+          </Text>
+          <Pressable
+            onPress={() => {
+              void shareStartupLog(payload);
+            }}
+          >
+            <Text style={{ color: colors.link, fontSize: 16 }}>{Platform.OS === 'web' ? '复制启动日志' : '分享启动日志'}</Text>
+          </Pressable>
+        </View>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 function AuthGate({ children }: { children: ReactNode }) {
   const { ready, signedIn } = useAuth();
@@ -53,6 +92,9 @@ function AuthGate({ children }: { children: ReactNode }) {
 
 export default function RootLayout() {
   const [client] = useState(() => queryClient);
+  useEffect(() => {
+    logStartup('js-layout-mount');
+  }, []);
 
   useEffect(() => {
     if (Platform.OS !== 'web' || typeof document === 'undefined') return;
@@ -74,22 +116,24 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <QueryClientProvider client={client}>
         <AuthProvider>
-          <AuthGate>
-            <StatusBar style="dark" />
-            <Stack
-              screenOptions={{
-                headerShown: false,
-                contentStyle: { backgroundColor: colors.bg },
-              }}
-            >
-              <Stack.Screen name="index" />
-              <Stack.Screen name="setup" />
-              <Stack.Screen name="preview" />
-              <Stack.Screen name="home" />
-              <Stack.Screen name="settings" />
-              <Stack.Screen name="agent/[id]" />
-            </Stack>
-          </AuthGate>
+          <RootErrorBoundary>
+            <AuthGate>
+              <StatusBar style="dark" />
+              <Stack
+                screenOptions={{
+                  headerShown: false,
+                  contentStyle: { backgroundColor: colors.bg },
+                }}
+              >
+                <Stack.Screen name="index" />
+                <Stack.Screen name="setup" />
+                <Stack.Screen name="preview" />
+                <Stack.Screen name="home" />
+                <Stack.Screen name="settings" />
+                <Stack.Screen name="agent/[id]" />
+              </Stack>
+            </AuthGate>
+          </RootErrorBoundary>
         </AuthProvider>
       </QueryClientProvider>
     </SafeAreaProvider>

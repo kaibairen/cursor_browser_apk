@@ -1,0 +1,15 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <application>
+    <provider
+      android:name=".StartupLogProvider"
+      android:authorities="${applicationId}.startuplog"
+      android:exported="false"
+      android:initOrder="2147483647" />
+    <activity
+      android:name=".CrashActivity"
+      android:exported="false"
+      android:excludeFromRecents="true"
+      android:process=":crash"
+      android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+  </application>
+</manifest>
