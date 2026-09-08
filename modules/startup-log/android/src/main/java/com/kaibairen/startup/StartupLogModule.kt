@@ -9,6 +9,7 @@ class StartupLogModule : Module() {
 
     OnCreate {
       val ctx = appContext.reactContext ?: appContext.currentActivity
+      StartupLog.installHandler(ctx)
       StartupLog.write(ctx, "module.OnCreate")
     }
 
@@ -20,6 +21,11 @@ class StartupLogModule : Module() {
     Function("read") {
       val ctx = appContext.reactContext ?: appContext.currentActivity
       StartupLog.read(ctx)
+    }
+
+    Function("showCrash") { detail: String ->
+      val ctx = appContext.reactContext ?: appContext.currentActivity
+      StartupLog.showCrashScreen(ctx, detail, die = true)
     }
   }
 }

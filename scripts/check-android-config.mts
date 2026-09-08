@@ -115,6 +115,9 @@ const startupManifest = readFileSync(join(root, 'modules/startup-log/android/src
 if (!startupManifest.includes('StartupLogProvider') || !startupManifest.includes('startuplog')) {
   throw new Error('startup-log must register a ContentProvider so breadcrumbs run before JS');
 }
+if (!startupManifest.includes('CrashActivity') || !startupManifest.includes(':crash')) {
+  throw new Error('startup-log must register CrashActivity in a :crash process so flash-exits can show the stack');
+}
 if (!JSON.stringify(app.expo?.plugins ?? []).includes('withStartupLog')) {
   throw new Error('app.json must apply the startup log MainApplication plugin');
 }
@@ -137,9 +140,12 @@ if (
   !application.includes('MainApplication.onCreate begin') ||
   !application.includes('MainApplication.loadReactNative begin') ||
   !application.includes('MainApplication.loadReactNative ok') ||
-  !application.includes('MainApplication.lifecycle ok')
+  !application.includes('MainApplication.lifecycle ok') ||
+  !application.includes('isCrashProcess') ||
+  !application.includes('showAndDie') ||
+  !application.includes('installHandler')
 ) {
-  throw new Error('startup plugin must wrap attachBaseContext, onCreate, and loadReactNative');
+  throw new Error('startup plugin must wrap attachBaseContext, onCreate, loadReactNative, and the crash page');
 }
 const activity = plugin.applyMainActivity(`
 class MainActivity : ReactActivity() {
@@ -156,6 +162,13 @@ if (!activity.includes('MainActivity.onCreate begin') || !activity.includes('Mai
 const writer = readFileSync(join(root, 'modules/startup-log/android/src/main/java/com/kaibairen/startup/StartupLog.kt'), 'utf8');
 if (!writer.includes('fd.sync') || !writer.includes('startup.last') || !writer.includes('VideoModule')) {
   throw new Error('StartupLog must fsync, keep last line, and record whether expo-video classes exist');
+}
+if (!writer.includes('showCrashScreen') || !writer.includes('CrashActivity')) {
+  throw new Error('StartupLog must open CrashActivity with the uncaught exception text');
+}
+const jsHook = readFileSync(join(root, 'src/lib/startupLog.ts'), 'utf8');
+if (!jsHook.includes('showCrash') || !jsHook.includes('fatal')) {
+  throw new Error('JS fatal errors must open the native crash page on Android');
 }
 const about = readFileSync(join(root, 'src/features/settings/AboutPanel.tsx'), 'utf8');
 if (about.includes('Share.share')) {

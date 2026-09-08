@@ -28,7 +28,7 @@ class RootErrorBoundary extends Component<{ children: ReactNode }, { failed: boo
   state = { failed: false, detail: '', log: '' };
 
   static getDerivedStateFromError(error: Error): { failed: boolean; detail: string } {
-    return { failed: true, detail: error.message };
+    return { failed: true, detail: `${error.message}\n${error.stack ?? ''}` };
   }
 
   componentDidCatch(error: Error, _info: ErrorInfo): void {
@@ -38,19 +38,19 @@ class RootErrorBoundary extends Component<{ children: ReactNode }, { failed: boo
 
   render(): ReactNode {
     if (this.state.failed) {
-      const payload = [`js-boundary ${this.state.detail}`, this.state.log].filter(Boolean).join('\n');
+      const payload = [`页面崩溃（请截图发给我）`, this.state.detail, this.state.log].filter(Boolean).join('\n\n');
       return (
-        <View style={{ flex: 1, backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center', padding: 24, gap: 12 }}>
-          <Text style={{ color: colors.text, fontSize: 16, textAlign: 'center' }}>页面出错了。把下面日志发给我，再把应用划掉重开。</Text>
-          <Text selectable style={{ color: colors.muted, fontSize: 12, textAlign: 'left', alignSelf: 'stretch' }}>
-            {payload || this.state.detail}
+        <View style={{ flex: 1, backgroundColor: '#ffffff', padding: 20, paddingTop: 48, gap: 16 }}>
+          <Text style={{ color: '#111111', fontSize: 22, fontWeight: '700' }}>页面崩溃（请截图发给我）</Text>
+          <Text selectable style={{ color: '#111111', fontSize: 15, lineHeight: 22 }}>
+            {payload}
           </Text>
           <Pressable
             onPress={() => {
-              void shareStartupLog(payload || this.state.detail);
+              void shareStartupLog(payload);
             }}
           >
-            <Text style={{ color: colors.link, fontSize: 15 }}>{Platform.OS === 'web' ? '复制启动日志' : '分享启动日志'}</Text>
+            <Text style={{ color: colors.link, fontSize: 16 }}>{Platform.OS === 'web' ? '复制启动日志' : '分享启动日志'}</Text>
           </Pressable>
         </View>
       );

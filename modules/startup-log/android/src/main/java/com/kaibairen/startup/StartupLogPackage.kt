@@ -13,6 +13,7 @@ class StartupLogPackage : Package {
     return listOf(
       object : ApplicationLifecycleListener {
         override fun onCreate(application: Application) {
+          StartupLog.installHandler(application)
           StartupLog.write(application, "application.onCreate")
         }
       },

@@ -5,6 +5,7 @@ let hooked = false;
 type StartupLogNative = {
   write?: (value: string) => void;
   read?: () => string;
+  showCrash?: (value: string) => void;
 };
 
 function nativeModule(): StartupLogNative | null {
@@ -63,8 +64,17 @@ export function hookJsErrors(): void {
   ).ErrorUtils;
   const previous = errorUtils?.getGlobalHandler?.();
   errorUtils?.setGlobalHandler?.((error, fatal) => {
-    const stack = error?.stack?.split('\n').slice(0, 6).join(' | ') ?? '';
-    logStartup(`js-error fatal=${Boolean(fatal)} ${error?.message ?? 'unknown'} ${stack}`);
+    const stack = error?.stack ?? '';
+    const text = `js-error fatal=${Boolean(fatal)} ${error?.message ?? 'unknown'}\n${stack}`;
+    logStartup(text.split('\n').slice(0, 2).join(' '));
+    if (fatal && Platform.OS === 'android') {
+      try {
+        nativeModule()?.showCrash?.(text);
+        return;
+      } catch {
+        // Fall through to the previous handler if the crash page cannot start.
+      }
+    }
     previous?.(error, fatal);
   });
 }

@@ -9,18 +9,7 @@ import android.util.Log
 class StartupLogProvider : ContentProvider() {
   override fun onCreate(): Boolean {
     return try {
-      val previous = Thread.getDefaultUncaughtExceptionHandler()
-      Thread.setDefaultUncaughtExceptionHandler { thread, error ->
-        try {
-          StartupLog.write(
-            context,
-            "uncaught thread=${thread.name} ${error.javaClass.name} ${error.message} ${error.stackTraceToString().take(1200)}",
-          )
-        } catch (writeError: Throwable) {
-          Log.e(StartupLog.TAG, "uncaught-write-failed ${writeError.message}")
-        }
-        previous?.uncaughtException(thread, error)
-      }
+      StartupLog.installHandler(context)
       StartupLog.write(context, "provider.onCreate")
       true
     } catch (error: Throwable) {

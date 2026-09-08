@@ -22,6 +22,19 @@ function injectAfterOnCreate(src, message, contextExpr) {
   );
 }
 
+function injectCrashProcessGuard(src) {
+  if (src.includes('StartupLog.isCrashProcess')) return src;
+  let next = src.replace(
+    /override fun attachBaseContext\(base: android\.content\.Context\) \{\n/,
+    `override fun attachBaseContext(base: android.content.Context) {\n    if (com.kaibairen.startup.StartupLog.isCrashProcess(base)) {\n      super.attachBaseContext(base)\n      return\n    }\n`,
+  );
+  next = next.replace(
+    /override fun onCreate\(\) \{\n/,
+    `override fun onCreate() {\n    if (com.kaibairen.startup.StartupLog.isCrashProcess(this)) {\n      super.onCreate()\n      return\n    }\n`,
+  );
+  return next;
+}
+
 function injectAttachBaseContext(src) {
   if (src.includes('MainApplication.attachBaseContext')) return src;
   if (/override fun attachBaseContext/.test(src)) {
@@ -46,9 +59,10 @@ function wrapLoadReactNative(src) {
       loadReactNative(this)
       android.util.Log.e("${MARK}", "MainApplication.loadReactNative ok")
       try { com.kaibairen.startup.StartupLog.write(this, "MainApplication.loadReactNative ok") } catch (_: Throwable) {}
+      try { com.kaibairen.startup.StartupLog.installHandler(this) } catch (_: Throwable) {}
     } catch (error: Throwable) {
       android.util.Log.e("${MARK}", "MainApplication.loadReactNative fail " + error)
-      try { com.kaibairen.startup.StartupLog.write(this, "MainApplication.loadReactNative fail " + error.message) } catch (_: Throwable) {}
+      try { com.kaibairen.startup.StartupLog.showAndDie(this, "MainApplication.loadReactNative fail", error) } catch (_: Throwable) {}
       throw error
     }`,
   );
@@ -63,6 +77,7 @@ function injectAfterCall(src, call, message, contextExpr) {
 function applyMainApplication(src) {
   let next = src;
   next = injectAttachBaseContext(next);
+  next = injectCrashProcessGuard(next);
   next = injectAfterOnCreate(next, 'MainApplication.onCreate begin', 'this');
   next = wrapLoadReactNative(next);
   next = injectAfterCall(
